@@ -1,13 +1,15 @@
-use std::fs::Permissions;
-use std::fs::{create_dir_all, set_permissions};
+use std::fs::{File, Permissions};
+use std::fs::{create_dir_all, hard_link, set_permissions};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use unshare::{Command, Stdio};
-use libmount::BindMount;
+use tar::Archive;
+use flate2::read::GzDecoder;
+use bzip2::read::BzDecoder;
+use xz2::read::XzDecoder;
 
-use container::mount::{unmount};
 use builder::context::Context;
 use builder::download::{maybe_download_and_check_hashsum};
 use builder::commands::generic::run_command_at;
@@ -32,66 +34,141 @@ pub struct TarInstall {
     pub script: String,
 }
 
-
-pub fn unpack_file(_ctx: &mut Context, src: &Path, tgt: &Path,
-    includes: &[&Path], excludes: &[&Path])
-    -> Result<(), String>
+fn get_entry_file_path(entry_path: &Path, tgt: &Path,
+    subdir: Option<&Path>, include: &[&Path], exclude: &[&Path])
+    -> Result<(Option<PathBuf>, bool), String>
 {
-    info!("Unpacking {} -> {}", src.display(), tgt.display());
-    let mut cmd = Command::new("/vagga/bin/busybox");
-    cmd.stdin(Stdio::null())
-        .arg("tar")
-        .arg("-x")
-        .arg("-f").arg(src)
-        .arg("-C").arg(tgt);
-    for i in includes.iter() {
-        cmd.arg(i);
+    if include.len() > 0 {
+        for include_path in include {
+            if !entry_path.starts_with(include_path) {
+                return Ok((None, false));
+            }
+        }
     }
-    for i in excludes.iter() {
-        cmd.arg("--exclude").arg(i);
+    for exclude_path in exclude {
+        if entry_path.starts_with(exclude_path) {
+            return Ok((None, false));
+        }
     }
-
-    match src.extension().and_then(|x| x.to_str()) {
-        Some("gz")|Some("tgz") => { cmd.arg("-z"); }
-        Some("bz")|Some("tbz") => { cmd.arg("-j"); }
-        Some("xz")|Some("txz") => { cmd.arg("-J"); }
-        _ => {}
-    };
-    info!("Running: {:?}", cmd);
-    match cmd.status() {
-        Ok(st) if st.success() => Ok(()),
-        Ok(val) => Err(format!("Tar exited with status: {}", val)),
-        Err(e) => Err(format!("Error running tar: {}", e)),
+    match subdir {
+        Some(subdir) => {
+            if entry_path.starts_with(subdir) {
+                let file_path = tgt.join(try_msg!(entry_path.strip_prefix(subdir), "{err}"));
+                Ok((Some(file_path), true))
+            } else {
+                Ok((None, false))
+            }
+        },
+        None => {
+            let file_path = tgt.join(&entry_path);
+            Ok((Some(file_path), false))
+        },
     }
 }
 
-pub fn tar_command(ctx: &mut Context, tar: &Tar) -> Result<(), String>
+struct Link {
+    pub src: PathBuf,
+    pub dst: PathBuf,
+}
+
+pub fn unpack_file(src: &Path, tgt: &Path, subdir: Option<&Path>,
+    include: &[&Path], exclude: &[&Path])
+    -> Result<(), String>
+{
+    info!("Unpacking {} -> {}", src.display(), tgt.display());
+
+    let mut file = try_msg!(File::open(src),
+        "Cannot open file {filename:?}: {err}", filename=src);
+    let (mut gz, mut bz, mut xz);
+    let r: &mut Read = match src.extension().and_then(|x| x.to_str()) {
+        Some("gz")|Some("tgz") => {
+            gz = try_msg!(GzDecoder::new(file), "Cannot decode file: {err}");
+            &mut gz
+        }
+        Some("bz")|Some("tbz") => {
+            bz = BzDecoder::new(file);
+            &mut bz
+        }
+        Some("xz")|Some("txz") => {
+            xz = XzDecoder::new(file);
+            &mut xz
+        }
+        _ => {
+            &mut file
+        }
+    };
+
+    try_msg!(create_dir(&tgt, true), "Error creating dir: {err}");
+
+    let mut found_subdir = false;
+    let mut tar = Archive::new(r);
+    let mut delayed_links = vec!();
+    for entry in tar.entries().unwrap() {
+        let entry = &mut entry.unwrap();
+        let entry_path = entry.header().path().unwrap().to_path_buf();
+        if !entry.header().entry_type().is_hard_link() {
+            let (file_path, is_inside_subdir) = try!(get_entry_file_path(
+                &entry_path, tgt, subdir, include, exclude));
+            if !found_subdir {
+                found_subdir = is_inside_subdir;
+            }
+            if let Some(file_path) = file_path {
+                debug!("Unpacking {:?}: {:?} => {:?}",
+                    entry.header().entry_type(), &entry_path, &file_path);
+                try_msg!(entry.unpack(file_path),
+                    "Cannot unpack archive: {err}");
+            }
+        } else {
+            // TODO: process case when hard link is inside subdir
+            // but destination file is not
+            let (file_path, _) = try!(get_entry_file_path(
+                &entry_path, tgt, subdir, include, exclude));
+            if let Some(file_path) = file_path {
+                let link_name = match try_msg!(entry.link_name(),
+                    "Error when getting link name: {err}")
+                {
+                    Some(name) => name,
+                    None => return Err(format!("Missing name for hard link")),
+                };
+                let (link_path, _) = try!(get_entry_file_path(
+                    &link_name.into_owned(), tgt, subdir, include, exclude));
+                if let Some(link_path) = link_path {
+                    let link = Link {
+                        src: link_path,
+                        dst: file_path,
+                    };
+                    delayed_links.push(link);
+                }
+            }
+        }
+    }
+    for link in delayed_links {
+        info!("Delayed link: {:?} -> {:?}", link.src, link.dst);
+        try_msg!(hard_link(&link.src, &link.dst),
+            "Cannot create hard link: {err}");
+    }
+
+    match subdir {
+        Some(subdir) if !found_subdir => {
+            Err(format!("{:?} is not found in archive", subdir))
+        },
+        _ => Ok(()),
+    }
+}
+
+pub fn tar_command(ctx: &mut Context, tar: &Tar)
+    -> Result<(), String>
 {
     let fpath = PathBuf::from("/vagga/root").join(tar.path.rel());
     let filename = try!(maybe_download_and_check_hashsum(
         ctx, &tar.url, tar.sha256.clone()));
 
-    if &Path::new(&tar.subdir) == &Path::new(".") {
-        try!(unpack_file(ctx, &filename, &fpath, &[], &[]));
+    if &tar.subdir == &Path::new("") || &tar.subdir == &Path::new(".") {
+        try!(unpack_file(&filename, &fpath, None, &[], &[]));
     } else {
-        let tmppath = PathBuf::from("/vagga/root/tmp")
-            .join(filename.file_name().unwrap());
-        let tmpsub = tmppath.join(&tar.subdir);
-        try_msg!(create_dir(&tmpsub, true), "Error making dir: {err}");
-        if !fpath.exists() {
-            try_msg!(create_dir(&fpath, true), "Error making dir: {err}");
-        }
-        try_msg!(BindMount::new(&fpath, &tmpsub).mount(),
-            "temporary tar mount: {err}");
-        let res = if tar.subdir.as_path() == Path::new("") {
-            unpack_file(ctx, &filename, &tmppath, &[], &[])
-        } else {
-            unpack_file(ctx, &filename, &tmppath,
-                &[&tar.subdir.clone()], &[])
-        };
-        try!(unmount(&tmpsub));
-        try!(res);
-    }
+        try!(unpack_file(&filename, &fpath, Some(&tar.subdir),
+            &[&tar.subdir], &[]));
+    };
     Ok(())
 }
 
@@ -107,7 +184,7 @@ pub fn tar_install(ctx: &mut Context, tar: &TarInstall)
          .map_err(|e| format!("Error making dir: {}", e)));
     try!(set_permissions(&tmppath, Permissions::from_mode(0o755))
          .map_err(|e| format!("Error setting permissions: {}", e)));
-    try!(unpack_file(ctx, &filename, &tmppath, &[], &[]));
+    try!(unpack_file(&filename, &tmppath, None, &[], &[]));
     let workdir = if let Some(ref subpath) = tar.subdir {
         tmppath.join(subpath)
     } else {

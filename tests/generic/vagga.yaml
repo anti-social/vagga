@@ -39,6 +39,41 @@ containers:
     - !Alpine v3.1
     - !Sh env
 
+  tar-local:
+    setup:
+    - !Alpine v3.3
+    - !EnsureDir /root/test/tar/dir
+    - !Text
+      /root/test/tar/dir/file.txt: Hello world!
+    - !Tar
+      url: ./test-file.tar
+      path: /root/test/tar
+    - !Tar
+      url: ./test-file.tar
+      path: /root/test/tar-subdir
+      subdir: dir
+    - !Tar
+      url: ./test-file.tar
+      path: /root/test/tar-dot-subdir
+      subdir: .
+    - !Tar
+      url: ./test-file.tar.gz
+      path: /root/test/gz
+    - !Tar
+      url: ./test-file.tar.bz
+      path: /root/test/bz
+    - !Tar
+      url: ./test-file.tar.xz
+      path: /root/test/xz
+
+  tar-no-subdir:
+    setup:
+    - !Alpine v3.3
+    - !Tar
+      url: ./test-file.tar.gz
+      path: /root/test/
+      subdir: ./dir
+
   unzip-local:
     setup:
     - !Alpine v3.3

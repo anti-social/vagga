@@ -194,6 +194,45 @@ setup() {
     [[ $link = ".roots/vagga.f4d65ae1/root" ]]
 }
 
+@test "generic: unpack tar" {
+    rm -rf install.sh dir test-file.zip test-file.tar test-file.tar.gz test-file.tar.bz test-file.tar.xz
+    curl -o test-file.zip http://files.zerogw.com/test-files/test-file.zip
+    unzip test-file.zip
+    tar -cv -f test-file.tar install.sh dir
+    tar -cvz -f test-file.tar.gz install.sh dir
+    tar -cvj -f test-file.tar.bz install.sh dir
+    tar -cvJ -f test-file.tar.xz install.sh dir
+    rm -rf install.sh dir
+
+    run vagga _build tar-local
+    printf "%s\n" "${lines[@]}"
+    # link=$(readlink .vagga/tar-local)
+    # [[ $link = ".roots/tar-local.f4d65ae1/root" ]]
+    [[ $(cat .vagga/tar-local/root/test/tar/dir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/tar/dir/file2.txt) = "2" ]]
+    [[ -x .vagga/tar-local/root/test/tar/install.sh ]]
+    [[ $(cat .vagga/tar-local/root/test/tar-subdir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/tar-subdir/file2.txt) = "2" ]]
+    [[ ! -f .vagga/tar-local/root/test/tar-subdir/install.sh ]]
+    [[ $(cat .vagga/tar-local/root/test/tar-dot-subdir/dir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/tar-dot-subdir/dir/file2.txt) = "2" ]]
+    [[ -x .vagga/tar-local/root/test/tar-dot-subdir/install.sh ]]
+    [[ $(cat .vagga/tar-local/root/test/gz/dir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/gz/dir/file2.txt) = "2" ]]
+    [[ -x .vagga/tar-local/root/test/gz/install.sh ]]
+    [[ $(cat .vagga/tar-local/root/test/bz/dir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/bz/dir/file2.txt) = "2" ]]
+    [[ -x .vagga/tar-local/root/test/bz/install.sh ]]
+    [[ $(cat .vagga/tar-local/root/test/xz/dir/file.txt) = "Hello" ]]
+    [[ $(cat .vagga/tar-local/root/test/xz/dir/file2.txt) = "2" ]]
+    [[ -x .vagga/tar-local/root/test/xz/install.sh ]]
+
+    run vagga _build tar-no-subdir
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 121 ]]
+    [[ $output = *'./dir" is not found in archive'* ]]
+}
+
 @test "generic: unpack zip archive" {
     curl -o test-file.zip http://files.zerogw.com/test-files/test-file.zip
     hash=($(sha256sum test-file.zip))
