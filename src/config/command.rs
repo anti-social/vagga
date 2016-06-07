@@ -131,6 +131,12 @@ impl ChildCommand {
             ChildCommand::BridgeCommand(ref info) => &info.volumes,
         }
     }
+    pub fn get_description<'x>(&'x self) -> Option<&'x String> {
+        match *self {
+            ChildCommand::Command(ref info) => info.description.as_ref(),
+            ChildCommand::BridgeCommand(ref info) => info.description.as_ref(),
+        }
+    }
     pub fn pass_socket(&self) -> Option<&String> {
         match *self {
             ChildCommand::Command(ref c) => c.pass_tcp_socket.as_ref(),

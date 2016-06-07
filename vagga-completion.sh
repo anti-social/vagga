@@ -7,4 +7,4 @@ _vagga_completion() {
     return 0
 }
 
-complete -o filenames -F _vagga_completion vagga
+complete -F _vagga_completion vagga
