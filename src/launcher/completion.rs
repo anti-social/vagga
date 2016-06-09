@@ -281,7 +281,8 @@ const BUILTIN_COMMANDS:
         options: &[
             &CommandOption {
                 names: &["-W", "--writable"],
-                description: "",
+                description: "Create transient writeable container \
+                    for running the command",
                 has_args: false,
                 single: true,
             },
@@ -297,7 +298,7 @@ const BUILTIN_COMMANDS:
         options: &[
             &CommandOption {
                 names: &["--pid"],
-                description: "",
+                description: "Run in the namespace of the process with PID",
                 has_args: true,
                 single: true,
             },
@@ -313,13 +314,14 @@ const BUILTIN_COMMANDS:
         options: &[
             &CommandOption {
                 names: &["-s", "--short"],
-                description: "",
+                description: "Print short container version, \
+                    like used in directory names 8 chars",
                 has_args: false,
                 single: true,
             },
             &CommandOption {
                 names: &["-fd3"],
-                description: "",
+                description: "Print into file descriptor #3 instead of stdout",
                 has_args: false,
                 single: true,
             },
@@ -378,7 +380,7 @@ enum States<'a> {
     GlobalCmd,
     GlobalOption(&'a CommandOption<'a>),
     GlobalOptionArg(&'a CommandOption<'a>),
-    UserCmd,
+    UserCmd(&'a str),
     SuperviseCmd(&'a str),
     SuperviseOption(&'a str, &'a SuperviseOption<'a>),
     SuperviseOptionArg(&'a str, &'a SuperviseOption<'a>),
@@ -466,7 +468,7 @@ impl<'a> CompletionState<'a> {
                         }
                     }
                 },
-                States::UserCmd => {},
+                States::UserCmd(_) => {},
                 States::SuperviseCmd(cmd_name) |
                 States::SuperviseOptionArg(cmd_name, _) => {
                     next_state = self.maybe_supervise_option(
@@ -548,7 +550,7 @@ impl<'a> CompletionState<'a> {
             }
             match *user_cmd {
                 MainCommand::Command(_) => {
-                    return Some(States::UserCmd);
+                    return Some(States::UserCmd(cmd_name));
                 },
                 MainCommand::Supervise(_) => {
                     return Some(States::SuperviseCmd(cmd_name));
@@ -619,6 +621,20 @@ impl<'a> CompletionState<'a> {
             States::GlobalOption(opt) if !opt.has_args => {
                 completions.extend(self.complete_global(cur));
             },
+            States::UserCmd(cmd_name) => {
+                if let Some(&MainCommand::Command(ref cmd_info)) =
+                    self.commands.get(cmd_name)
+                {
+                    if cmd_info.has_args() {
+                        completions.push(
+                            CompletionGroup {
+                                name: "file",
+                                completions: vec!(),
+                            }
+                        );
+                    }
+                }
+            },
             States::SuperviseCmd(_) => {
                 completions.push(
                     self.get_supervise_options_completion_group());
@@ -656,10 +672,10 @@ impl<'a> CompletionState<'a> {
             completions.push(
                 self.get_builtin_completion_group());
         }
-        if cur.starts_with("-") {
+        // if cur.starts_with("-") {
             completions.push(
                 self.get_global_options_completion_group());
-        }
+        // }
 
         return completions;
     }
@@ -881,7 +897,7 @@ impl<'a> CompletionState<'a> {
         }
 
         return CompletionGroup {
-            name: "command options",
+            name: "command option",
             completions: completions,
         };
     }
@@ -921,6 +937,7 @@ pub fn generate_completions(config: &Config, args: Vec<String>)
                     for name in opt_comp.names {
                         match opt_comp.description {
                             Some(descr) => println!("{}[{}]", name, descr),
+                                // descr.replace("[", "\\[").replace("]", "\\]")),
                             None => println!("{}", name),
                         }
                     }

@@ -86,7 +86,7 @@ commands:
       Documentation is built under docs/_build/html/index.html
 
   make: !Command
-    description: Build vagga
+    description: ":Build::vagga:"
     container: rust-musl
     run: [make]
 

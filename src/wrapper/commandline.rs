@@ -26,11 +26,8 @@ pub fn commandline_cmd(command: &CommandInfo,
         return Err(format!(
             r#"Command has empty "run" parameter. Nothing to run."#));
     }
-    // TODO(tailhook) detect other shells too
-    let has_args = command.accepts_arguments
-            .unwrap_or(&command.run[0][..] != "/bin/sh");
     let mut args = Vec::new();
-    if !has_args {
+    if !command.has_args() {
         let mut ap = ArgumentParser::new();
         ap.set_description(command.description.as_ref()
             .map(|x| &x[..]).unwrap_or(""));

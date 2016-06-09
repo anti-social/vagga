@@ -27,7 +27,7 @@ pub fn run_command_cmd(wrapper: &Wrapper, cmdline: Vec<String>)
             ");
         ap.refer(&mut copy)
             .add_option(&["-W", "--writeable"], StoreTrue,
-                "Create translient writeable container for running the command.
+                "Create transient writeable container for running the command.
                  Currently we use hard-linked copy of the container, so it's
                  dangerous for some operations. Still it's ok for installing
                  packages or similar tasks");

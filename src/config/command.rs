@@ -70,6 +70,14 @@ pub struct CommandInfo {
     pub supplementary_gids: Vec<u32>,
 }
 
+impl CommandInfo {
+    pub fn has_args(&self) -> bool {
+        // TODO(tailhook) detect other shells too
+        return self.accepts_arguments
+            .unwrap_or(self.run[0] != "/bin/sh");
+    }
+}
+
 #[derive(RustcDecodable, Clone, PartialEq, Eq)]
 pub struct SuperviseInfo {
     // Common
