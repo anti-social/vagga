@@ -2,7 +2,7 @@ containers:
 
   py2-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Py2Install [setuptools, urp]
 
   py2-alpine:
@@ -12,7 +12,7 @@ containers:
 
   py2-git-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Py2Install [setuptools, "git+git://github.com/jdp/urp"]
 
   py2-git-alpine:
@@ -22,7 +22,7 @@ containers:
 
   py3-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Py3Install [setuptools, urp]
 
   py35-ubuntu:
@@ -45,12 +45,12 @@ containers:
 
   py3-git-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Py3Install [setuptools, "git+git://github.com/jdp/urp"]
 
   py2req-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Py2Requirements requirements.txt
 
   py2req-alpine:
@@ -60,7 +60,7 @@ containers:
 
   py3req-https-ubuntu:
     setup:
-    - !UbuntuRelease { version: 15.04 }
+    - !Ubuntu xenial
     - !Py3Requirements req-https.txt
 
   py3req-https-alpine:
@@ -79,7 +79,7 @@ containers:
 
   ubuntu-lxml:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Install [libxml2-dev, libxslt1-dev, zlib1g-dev]
     - !Env
     - !Py3Install [lxml]

@@ -3,9 +3,9 @@ containers:
   too-much-uids:
     uids: [0-1000000000]
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
 
   too-much-gids:
     gids: [0-1000000000]
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial

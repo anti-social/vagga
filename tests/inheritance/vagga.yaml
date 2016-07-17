@@ -16,7 +16,7 @@ containers:
 
   hellopkg:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !UbuntuUniverse
     - !Install [checkinstall]
     - !Text { /tmp/hello.txt: "Hello World!" }
@@ -29,7 +29,7 @@ containers:
 
   hellomount:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Build
       container: hellopkg
       source: /var/pkg
@@ -38,7 +38,7 @@ containers:
 
   hellocopy:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !EnsureDir /tmp/pkg
     - !Build
       container: hellopkg
@@ -48,7 +48,7 @@ containers:
 
   hellocopyfile:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !EnsureDir /tmp/pkg
     - !Build
       container: hellopkg
@@ -58,7 +58,7 @@ containers:
 
   hellocopyfrommount:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !Build
       container: hellopkg
       source: /var/pkg

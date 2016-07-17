@@ -51,7 +51,7 @@ setup() {
     [[ $status -eq 0 ]]
     [[ ${lines[${#lines[@]}-1]} = "Hello World!" ]]
     link=$(readlink .vagga/hellomount)
-    [[ $link = ".roots/hellomount.e7eb747f/root" ]]
+    [[ $link = ".roots/hellomount.8101896b/root" ]]
 }
 
 @test "inheritance: Build copy from mount" {
@@ -60,7 +60,7 @@ setup() {
     [[ $status -eq 0 ]]
     [[ ${lines[${#lines[@]}-1]} = "Hello World!" ]]
     link=$(readlink .vagga/hellocopyfrommount)
-    [[ $link = ".roots/hellocopyfrommount.f04b8732/root" ]]
+    [[ $link = ".roots/hellocopyfrommount.03cdde98/root" ]]
 }
 
 @test "inheritance: Build copy" {
@@ -69,7 +69,7 @@ setup() {
     [[ $status -eq 0 ]]
     [[ ${lines[${#lines[@]}-1]} = "Hello World!" ]]
     link=$(readlink .vagga/hellocopy)
-    [[ $link = ".roots/hellocopy.b74c576d/root" ]]
+    [[ $link = ".roots/hellocopy.7d4a9333/root" ]]
 }
 
 @test "inheritance: Build copy file" {
@@ -78,7 +78,7 @@ setup() {
     [[ $status -eq 0 ]]
     [[ ${lines[${#lines[@]}-1]} = "Hello World!" ]]
     link=$(readlink .vagga/hellocopyfile)
-    [[ $link = ".roots/hellocopyfile.b74c576d/root" ]]
+    [[ $link = ".roots/hellocopyfile.7d4a9333/root" ]]
 }
 
 @test "inheritance: Deep inheritance" {

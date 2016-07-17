@@ -11,6 +11,18 @@ containers:
       update_gem: false
     - !GemInstall [rake:11.1.1]
 
+  pkg-ubuntu-xenial:
+    setup:
+    - !Ubuntu xenial
+    - !GemInstall [rake:11.1.1]
+
+  pkg-ubuntu-xenial-no-update-gem:
+    setup:
+    - !Ubuntu xenial
+    - !GemConfig
+      update_gem: false
+    - !GemInstall [rake, "-v", 11.1.1]
+
   pkg-ubuntu-trusty:
     setup:
     - !Ubuntu trusty
@@ -48,12 +60,12 @@ containers:
 
   bundle-ubuntu:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !GemBundle
 
   bundle-ubuntu-no-dev:
     setup:
-    - !Ubuntu trusty
+    - !Ubuntu xenial
     - !GemBundle
       without: [development]
 

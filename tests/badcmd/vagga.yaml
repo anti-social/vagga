@@ -1,6 +1,6 @@
 containers:
   ubuntu:
-    setup: [!Ubuntu trusty]
+    setup: [!Ubuntu xenial]
 
 commands:
   bad-cmd: !Command

@@ -89,7 +89,7 @@ teardown() {
     [[ ${lines[${#lines[@]}-1]} = "rake, version 11.1.1" ]]
     [[ -d .vagga/bundle-ubuntu/usr/lib/ruby/gems/1.9.1/gems/cuba-3.5.0 ]]
     link=$(readlink .vagga/bundle-ubuntu)
-    [[ $link = ".roots/bundle-ubuntu.4978e8f7/root" ]]
+    [[ $link = ".roots/bundle-ubuntu.5e5b62fe/root" ]]
 }
 
 @test "gem/bundler: ubuntu GemBundle without dev" {
@@ -99,7 +99,7 @@ teardown() {
     [[ -d .vagga/bundle-ubuntu-no-dev/usr/lib/ruby/gems/1.9.1/gems/cuba-3.5.0 ]]
     [[ ! -d .vagga/bundle-ubuntu-no-dev/usr/lib/ruby/gems/1.9.1/gems/rake-11.1.1 ]]
     link=$(readlink .vagga/bundle-ubuntu-no-dev)
-    [[ $link = ".roots/bundle-ubuntu-no-dev.4978e8f7/root" ]]
+    [[ $link = ".roots/bundle-ubuntu-no-dev.efb52fee/root" ]]
 }
 
 @test "gem/bundler: GemBundle invalid trust_policy" {
