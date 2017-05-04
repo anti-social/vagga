@@ -1,9 +1,14 @@
-use std::io;
-use std::fs::{read_dir, remove_file, remove_dir};
+use std::fs::File;
+use std::fs::{read_dir, remove_file, remove_dir, rename};
 use std::fs::{symlink_metadata, read_link, hard_link};
+use std::io::{self, BufReader};
 use std::os::unix::fs::{symlink, MetadataExt};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
+use dir_signature::v1::{Entry, EntryKind, Parser};
+use dir_signature::v1::merge::FileMergeBuilder;
+use itertools::Itertools;
 use libc::{uid_t, gid_t};
 
 use super::root::temporary_change_root;
@@ -182,4 +187,159 @@ pub fn version_from_symlink<P: AsRef<Path>>(path: P) -> Result<String, String>
     path.iter().rev().nth(1).and_then(|x| x.to_str())
     .ok_or_else(|| format!("Bad symlink {:?}: {:?}", lnk, path))
     .map(|x| x.to_string())
+}
+
+#[cfg(feature="containers")]
+pub fn find_and_link_identical_files(
+    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dir: &Path)
+    -> Result<(u32, u64), String>
+{
+    let container_root = cont_dir.join("root");
+    let main_ds_path = cont_dir.join("index.ds1");
+    if !main_ds_path.exists() {
+        warn!("No index file exists. Can't hardlink");
+        return Ok((0, 0));
+    }
+    let main_ds_reader = BufReader::new(try_msg!(File::open(&main_ds_path),
+        "Error opening file {path:?}: {err}", path=&main_ds_path));
+    let mut main_ds_parser = try_msg!(Parser::new(main_ds_reader),
+        "Error parsing signature file: {err}");
+
+    let _paths_names_times = get_container_paths_names_times(
+        roots_dir, &roots_dir.join(cont_ver))?;
+    let mut paths_names_times = _paths_names_times.iter()
+        .map(|&(ref p, ref n, ref t)| (p, n, t))
+        .collect::<Vec<_>>();
+    // Sort by current container name equality
+    // then by container name and then by modification date
+    paths_names_times.sort_by_key(|&(_, n, t)| {
+        (n == container_name, n, t)
+    });
+    let mut merged_ds_builder = FileMergeBuilder::new();
+    for (_, cont_group) in paths_names_times
+        .into_iter()
+        .rev()
+        .group_by(|&(_, n, _)| n)
+        .into_iter()
+    {
+        for (cont_path, _, _) in cont_group.take(5) {
+            merged_ds_builder.add(&cont_path.join("root"),
+                                  &cont_path.join("index.ds1"));
+        }
+    }
+    let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
+        "Error parsing signature files: {err}");
+    let mut merged_ds_iter = merged_ds.iter();
+
+    let tmp = cont_dir.join(".link.tmp");
+    let mut count = 0;
+    let mut size = 0;
+    for entry in main_ds_parser.iter() {
+        match entry {
+            Ok(Entry::File{
+                path: ref lnk_path,
+                exe: lnk_exe,
+                size: lnk_size,
+                hashes: ref lnk_hashes,
+            }) => {
+                let lnk = container_root.join(
+                    match lnk_path.strip_prefix("/") {
+                        Ok(lnk_path) => lnk_path,
+                        Err(_) => continue,
+                    });
+                let lnk_stat = lnk.symlink_metadata().map_err(|e|
+                    format!("Error querying file stats: {}", e))?;
+                for tgt_entry in merged_ds_iter
+                    .advance(&EntryKind::File(lnk_path))
+                {
+                    match tgt_entry {
+                        (tgt_base_path,
+                         Ok(Entry::File{
+                             path: ref tgt_path,
+                             exe: tgt_exe,
+                             size: tgt_size,
+                             hashes: ref tgt_hashes}))
+                            if lnk_exe == tgt_exe &&
+                            lnk_size == tgt_size &&
+                            lnk_hashes == tgt_hashes =>
+                        {
+                            let tgt = tgt_base_path.join(
+                                match tgt_path.strip_prefix("/") {
+                                    Ok(path) => path,
+                                    Err(_) => continue,
+                                });
+                            let tgt_stat = tgt.symlink_metadata().map_err(|e|
+                                format!("Error querying file stats: {}", e))?;
+                            if lnk_stat.mode() != tgt_stat.mode() ||
+                                lnk_stat.uid() != tgt_stat.uid() ||
+                                lnk_stat.gid() != lnk_stat.gid()
+                            {
+                                continue;
+                            }
+                            if let Err(_) = hard_link(&tgt, &tmp) {
+                                remove_file(&tmp).map_err(|e|
+                                    format!("Error removing file after failed \
+                                             hard linking: {}", e))?;
+                                continue;
+                            }
+                            if let Err(_) = rename(&tmp, &lnk) {
+                                remove_file(&tmp).map_err(|e|
+                                    format!("Error removing file after failed \
+                                             renaming: {}", e))?;
+                                continue;
+                            }
+                            count += 1;
+                            size += tgt_size;
+                            break;
+                        },
+                        _ => continue,
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+
+    Ok((count, size))
+}
+
+#[cfg(not(feature="containers"))]
+pub fn find_and_link_identical_files(container_name: &str,
+    tmp_dir: &Path, final_dir: &Path)
+    -> Result<(u32, u64), String>
+{
+    unimplemented!();
+}
+
+fn get_container_paths_names_times(roots_dir: &Path, exclude_path: &Path)
+    -> Result<Vec<(PathBuf, String, SystemTime)>, String>
+{
+    Ok(try_msg!(read_dir(roots_dir),
+                "Error reading directory: {err}")
+        .filter_map(|x| x.ok())
+        .map(|x| x.path())
+        .filter(|p| {
+            p != exclude_path &&
+                p.is_dir() &&
+                p.join("index.ds1").is_file()
+        })
+        .filter_map(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.to_string())
+                .map(|n| (p, n))
+        })
+        .filter(|&(_, ref d)| !d.starts_with("."))
+        .filter_map(|(p, d)| {
+            let mut dir_name_parts = d.rsplitn(2, '.');
+            dir_name_parts.next();
+            dir_name_parts.next()
+                .map(|n| (p, n.to_string()))
+        })
+        .filter_map(|(p, n)| {
+            p.metadata()
+                .and_then(|m| m.modified()).ok()
+                .map(|t| (p, n, t))
+        })
+        .collect::<Vec<_>>())
 }

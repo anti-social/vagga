@@ -8,10 +8,13 @@ use options::build_mode::build_mode;
 use options::version_hash;
 use container::nsutil::{set_namespace};
 use process_util::{run_and_wait, convert_status};
+use file_util::human_size;
 
 use super::network;
 use super::build::{build_container};
 use super::wrap::Wrapper;
+use builder::guard;
+use container::util::{version_from_symlink, find_and_link_identical_files};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
 
@@ -163,6 +166,49 @@ pub fn version_hash(ctx: &Context, cname: &str, mut args: Vec<String>)
     .map_err(|e| format!("Error running `vagga_wrapper {}`: {}",
                          cname, e))
 }
+
+pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
+    -> Result<i32, String>
+{
+    args.insert(0, "vagga _hardlink".to_string());
+    let mut container = "".to_string();
+    {
+        let mut ap = ArgumentParser::new();
+        ap.set_description("Indexes and hardlinks the container");
+        ap.refer(&mut container)
+            .add_argument("container", Store,
+                          "Container to hardlink files from");
+        ap.stop_on_first_argument(true);
+        match ap.parse(args.clone(), &mut stdout(), &mut stderr()) {
+            Ok(()) => {},
+            Err(0) => return Ok(0),
+            Err(_) => return Ok(122),
+        }
+    }
+
+    let vagga_dir = ctx.config_dir.join(".vagga");
+    let ver = version_from_symlink(vagga_dir.join(&container))?;
+
+    let roots_dir = vagga_dir.join(".roots");
+    let cont_dir = roots_dir.join(&ver);
+    if !cont_dir.join("index.ds1").exists() {
+        guard::index_image(&cont_dir)?;
+    }
+
+    match find_and_link_identical_files(
+        &container, &ver, &cont_dir, &roots_dir)
+    {
+        Ok((count, size)) => {
+            warn!("Found and linked {} ({}) identical files \
+                   from other containers", count, human_size(size));
+            Ok(0)
+        },
+        Err(msg) => {
+            Err(format!("Error when linking container files: {}", msg))
+        },
+    }
+}
+
 pub fn passthrough(ctx: &Context, cname: &str, args: Vec<String>)
     -> Result<i32, String>
 {

@@ -142,7 +142,7 @@ impl<'a> Guard<'a> {
         if self.ctx.settings.index_all_images {
             self.ctx.timelog.mark(format_args!("Indexing"))
                 .map_err(|e| format!("Can't write timelog: {}", e))?;
-            index_image()?;
+            index_image(Path::new("/vagga/container"))?;
         }
 
         self.ctx.timelog.mark(format_args!("Finish"))
@@ -195,13 +195,13 @@ fn warn_duplicate_data_dir(rel_path: &Path, is_final: bool) {
     }
 }
 
-pub fn index_image() -> Result<(), String> {
-    let index = File::create("/vagga/container/index.ds1")
+pub fn index_image(cont_dir: &Path) -> Result<(), String> {
+    let index = File::create(cont_dir.join("index.ds1"))
         .map_err(|e| format!("Can't write index: {}", e))?;
     warn!("Indexing container...");
     v1::scan(Sig::new()
             .hash(Blake)
-            .add_dir("/vagga/root", "/"),
+            .add_dir(cont_dir.join("root"), "/"),
         &mut BufWriter::new(index)
     ).map_err(|e| format!("Error indexing: {}", e))
 }
