@@ -13,8 +13,8 @@ use file_util::human_size;
 use super::network;
 use super::build::{build_container};
 use super::wrap::Wrapper;
-use builder::guard;
 use container::util::{version_from_symlink, find_and_link_identical_files};
+use container::util::{write_container_signature, check_signature};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
 
@@ -192,7 +192,7 @@ pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
     let roots_dir = vagga_dir.join(".roots");
     let cont_dir = roots_dir.join(&ver);
     if !cont_dir.join("index.ds1").exists() {
-        guard::index_image(&cont_dir)?;
+        write_container_signature(&cont_dir)?;
     }
 
     match find_and_link_identical_files(
@@ -206,6 +206,58 @@ pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
         Err(msg) => {
             Err(format!("Error when linking container files: {}", msg))
         },
+    }
+}
+
+pub fn verify_container(ctx: &Context, mut args: Vec<String>)
+    -> Result<i32, String>
+{
+    args.insert(0, "vagga _verify".to_string());
+    let mut container = "".to_string();
+    {
+        let mut ap = ArgumentParser::new();
+        ap.set_description("Verifies container files checksum");
+        ap.refer(&mut container)
+            .add_argument("container", Store, "Container to verify");
+        ap.stop_on_first_argument(true);
+        match ap.parse(args.clone(), &mut stdout(), &mut stderr()) {
+            Ok(()) => {},
+            Err(0) => return Ok(0),
+            Err(_) => return Ok(122),
+        }
+    }
+
+    let vagga_dir = ctx.config_dir.join(".vagga");
+    let ver = version_from_symlink(vagga_dir.join(&container))?;
+
+    let roots_dir = vagga_dir.join(".roots");
+    let cont_dir = roots_dir.join(&ver);
+
+    match check_signature(&cont_dir) {
+        Ok(None) => Ok(0),
+        Ok(Some(ref diff)) => {
+            println!("Container was corrupted");
+            if !diff.missing_paths.is_empty() {
+                println!("Missing paths:");
+                for p in &diff.missing_paths {
+                    println!("  {}", p.to_string_lossy());
+                }
+            }
+            if !diff.extra_paths.is_empty() {
+                println!("Extra paths:");
+                for p in &diff.extra_paths {
+                    println!("  {}", p.to_string_lossy());
+                }
+            }
+            if !diff.corrupted_paths.is_empty() {
+                println!("Corrupted paths:");
+                for p in &diff.corrupted_paths {
+                    println!("  {}", p.to_string_lossy());
+                }
+            }
+            Ok(1)
+        },
+        Err(e) => Err(format!("Error checking container signature: {}", e)),
     }
 }
 

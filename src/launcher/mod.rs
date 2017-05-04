@@ -304,6 +304,9 @@ pub fn run(input_args: Vec<String>) -> i32 {
         "_hardlink" => {
             underscore::hardlink_container(&context, args)
         }
+        "_verify" => {
+            underscore::verify_container(&context, args)
+        }
         "_capsule" => {
             ::capsule::run_command(&context, args)
         }

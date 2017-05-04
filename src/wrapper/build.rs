@@ -18,10 +18,10 @@ use libmount::BindMount;
 
 use builder::context::Context;
 use builder::commands::tarcmd::unpack_file;
-use builder::guard;
 use capsule::download::maybe_download_and_check_hashsum;
 use config::{Config, Container, Settings};
 use container::util::{clean_dir, find_and_link_identical_files};
+use container::util::write_container_signature;
 use container::mount::{unmount};
 use file_util::{Dir, Lock, copy, human_size};
 use process_util::{capture_fd3_status, copy_env_vars};
@@ -483,7 +483,7 @@ fn _build_from_image(name: &str, container: &Container,
                         "Error unlinking cache file: {}", e)).ok();
             }
             if settings.index_all_images {
-                guard::index_image(cont_dir)?;
+                write_container_signature(cont_dir)?;
             }
         },
         Err(e) => {

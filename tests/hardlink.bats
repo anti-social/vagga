@@ -3,7 +3,7 @@ setup() {
 }
 
 @test "hardlink cmd" {
-    run vagga _build hello
+    run vagga _build --force hello
     printf "%s\n" "${lines[@]}"
     [[ $status = 0 ]]
     link=$(readlink .vagga/hello)
@@ -14,7 +14,7 @@ setup() {
     [[ $status = 0 ]]
     [[ $output = *"Found and linked 0"* ]]
 
-    run vagga _build hello-and-bye
+    run vagga _build --force hello-and-bye
     printf "%s\n" "${lines[@]}"
     [[ $status = 0 ]]
     link=$(readlink .vagga/hello-and-bye)
@@ -31,4 +31,25 @@ setup() {
 
     [[ $(stat -c "%h" .vagga/hello-and-bye/etc/hello.txt) = 2 ]]
     [[ $(stat -c "%h" .vagga/hello-and-bye/etc/bye.txt) = 1 ]]
+}
+
+@test "verify cmd" {
+    vagga _build --force hello
+    vagga _hardlink hello
+    vagga _build --force hello-and-bye
+    vagga _hardlink hello-and-bye
+
+    run vagga _verify hello
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+
+    rm .vagga/hello-and-bye/etc/hello.txt
+    touch .vagga/hello-and-bye/etc/bonjour.txt
+    echo "Au Revoir!" > .vagga/hello-and-bye/etc/bye.txt
+    run vagga _verify hello-and-bye
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 1 ]]
+    [[ $output = *"/etc/hello.txt"* ]]
+    [[ $output = *"/etc/bonjour.txt"* ]]
+    [[ $output = *"/etc/bye.txt"* ]]
 }

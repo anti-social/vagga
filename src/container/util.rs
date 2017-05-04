@@ -1,15 +1,19 @@
 use std::fs::File;
 use std::fs::{read_dir, remove_file, remove_dir, rename};
 use std::fs::{symlink_metadata, read_link, hard_link};
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, BufWriter, Seek, SeekFrom};
 use std::os::unix::fs::{symlink, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use dir_signature::v1::{Entry, EntryKind, Parser};
+use dir_signature::{self, v1, ScannerConfig as Sig};
+use dir_signature::HashType::Blake2b_256 as Blake;
+use dir_signature::v1::{Entry, EntryKind, Parser, ParseError};
 use dir_signature::v1::merge::FileMergeBuilder;
 use itertools::Itertools;
 use libc::{uid_t, gid_t};
+use tempfile::tempfile;
+
 
 use super::root::temporary_change_root;
 use file_util::{Dir, shallow_copy};
@@ -187,6 +191,121 @@ pub fn version_from_symlink<P: AsRef<Path>>(path: P) -> Result<String, String>
     path.iter().rev().nth(1).and_then(|x| x.to_str())
     .ok_or_else(|| format!("Bad symlink {:?}: {:?}", lnk, path))
     .map(|x| x.to_string())
+}
+
+pub fn write_container_signature(cont_dir: &Path) -> Result<(), String> {
+    let index = File::create(cont_dir.join("index.ds1"))
+        .map_err(|e| format!("Can't write index: {}", e))?;
+    warn!("Indexing container...");
+    v1::scan(Sig::new()
+             .hash(Blake)
+             .add_dir(cont_dir.join("root"), "/"),
+             &mut BufWriter::new(index)
+    ).map_err(|e| format!("Error indexing: {}", e))
+}
+
+#[derive(Debug)]
+pub struct Diff {
+    pub missing_paths: Vec<PathBuf>,
+    pub extra_paths: Vec<PathBuf>,
+    pub corrupted_paths: Vec<PathBuf>,
+}
+
+quick_error!{
+    #[derive(Debug)]
+    pub enum CheckSignatureError {
+        Io(err: io::Error) {
+            description("io error")
+            display("Io error: {}", err)
+            from()
+        }
+        DirSignature(err: dir_signature::Error) {
+            description("error reading signature file")
+            display("Error reading signature file: {}", err)
+            from()
+        }
+        ParseSignature(err: ParseError) {
+            description("error parsing signature file")
+            display("Error parsing signature file: {}", err)
+            from()
+        }
+    }
+}
+
+pub fn check_signature(cont_dir: &Path)
+    -> Result<Option<Diff>, CheckSignatureError>
+{
+    let mut ds_file = File::open(cont_dir.join("index.ds1"))?;
+    let ds_hash = dir_signature::get_hash(&mut ds_file)?;
+
+    let mut scanner_config = Sig::new();
+    scanner_config
+        .hash(Blake)
+        .add_dir(cont_dir.join("root"), "/");
+    let mut real_ds_file = tempfile()?;
+    v1::scan(&scanner_config, &mut real_ds_file)?;
+    real_ds_file.seek(SeekFrom::Start(0))?;
+    let real_ds_hash = dir_signature::get_hash(&mut real_ds_file)?;
+
+    if ds_hash != real_ds_hash {
+        let mut ds_reader = BufReader::new(ds_file);
+        let mut real_ds_reader = BufReader::new(real_ds_file);
+        ds_reader.seek(SeekFrom::Start(0))?;
+        real_ds_reader.seek(SeekFrom::Start(0))?;
+        let mut ds_parser = Parser::new(ds_reader)?;
+        let mut real_ds_parser = Parser::new(real_ds_reader)?;
+
+        let mut diff = Diff {
+            missing_paths: vec!(),
+            extra_paths: vec!(),
+            corrupted_paths: vec!(),
+        };
+        {
+            let mut real_ds_iter = real_ds_parser.iter();
+            for entry in ds_parser.iter() {
+                let entry = entry?;
+                match real_ds_iter.advance(&entry.kind()) {
+                    Some(Ok(real_entry)) => {
+                        if entry != real_entry {
+                            diff.corrupted_paths.push(
+                                entry.get_path().to_path_buf());
+                        }
+                    },
+                    Some(Err(e)) => {
+                        return Err(CheckSignatureError::from(e));
+                    },
+                    None => {
+                        diff.missing_paths.push(entry.get_path().to_path_buf());
+                    },
+                }
+            }
+        }
+
+        let mut ds_reader = ds_parser.into_reader();
+        let mut real_ds_reader = real_ds_parser.into_reader();
+        ds_reader.seek(SeekFrom::Start(0))?;
+        real_ds_reader.seek(SeekFrom::Start(0))?;
+        let mut ds_parser = Parser::new(ds_reader)?;
+        let mut real_ds_parser = Parser::new(real_ds_reader)?;
+
+        let mut ds_iter = ds_parser.iter();
+        for real_entry in real_ds_parser.iter() {
+            let real_entry = real_entry?;
+            match ds_iter.advance(&real_entry.kind()) {
+                Some(Err(e)) => {
+                    return Err(CheckSignatureError::from(e));
+                },
+                None => {
+                    diff.extra_paths.push(real_entry.get_path().to_path_buf());
+                },
+                _ => {},
+            }
+        }
+
+        Ok(Some(diff))
+    } else {
+        Ok(None)
+    }
 }
 
 #[cfg(feature="containers")]
