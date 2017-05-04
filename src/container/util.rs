@@ -304,8 +304,8 @@ pub fn find_and_link_identical_files(
 }
 
 #[cfg(not(feature="containers"))]
-pub fn find_and_link_identical_files(container_name: &str,
-    tmp_dir: &Path, final_dir: &Path)
+pub fn find_and_link_identical_files(
+    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dir: &Path)
     -> Result<(u32, u64), String>
 {
     unimplemented!();
