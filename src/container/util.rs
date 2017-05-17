@@ -232,6 +232,7 @@ quick_error!{
     }
 }
 
+#[cfg(feature="containers")]
 pub fn check_signature(cont_dir: &Path)
     -> Result<Option<Diff>, CheckSignatureError>
 {
@@ -306,6 +307,13 @@ pub fn check_signature(cont_dir: &Path)
     } else {
         Ok(None)
     }
+}
+
+#[cfg(not(feature="containers"))]
+pub fn check_signature(cont_dir: &Path)
+    -> Result<Option<Diff>, CheckSignatureError>
+{
+    unimplemented!();
 }
 
 #[cfg(feature="containers")]
