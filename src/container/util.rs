@@ -359,6 +359,10 @@ pub fn find_and_link_identical_files(
     let mut merged_ds_iter = merged_ds.iter();
 
     let tmp = cont_dir.join(".link.tmp");
+    if tmp.exists() {
+        remove_file(&tmp).map_err(|e|
+            format!("Error removing temp file: {}", e))?;
+    }
     let mut count = 0;
     let mut size = 0;
     for entry in main_ds_parser.iter() {
