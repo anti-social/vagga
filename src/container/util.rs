@@ -387,25 +387,41 @@ pub fn find_and_link_identical_files(
                                     Ok(path) => path,
                                     Err(_) => continue,
                                 });
-                            let tgt_stat = tgt.symlink_metadata().map_err(|e|
-                                format!("Error querying file stats: {}", e))?;
+                            let tgt_stat = match tgt.symlink_metadata() {
+                                Ok(s) => s,
+                                Err(ref e)
+                                    if e.kind() == io::ErrorKind::NotFound =>
+                                {
+                                    // Ignore not found error cause container
+                                    // could be deleted
+                                    continue;
+                                },
+                                Err(e) => {
+                                    return Err(format!(
+                                        "Error querying file stats: {}", e));
+                                },
+                            };
                             if lnk_stat.mode() != tgt_stat.mode() ||
                                 lnk_stat.uid() != tgt_stat.uid() ||
                                 lnk_stat.gid() != lnk_stat.gid()
                             {
                                 continue;
                             }
-                            if let Err(_) = hard_link(&tgt, &tmp) {
-                                remove_file(&tmp).map_err(|e|
-                                    format!("Error removing file after failed \
-                                             hard linking: {}", e))?;
-                                continue;
+                            if let Err(e) = hard_link(&tgt, &tmp) {
+                                if e.kind() == io::ErrorKind::NotFound {
+                                    // Ignore not found error cause container
+                                    // could be deleted
+                                    continue;
+                                }
+                                return Err(format!(
+                                    "Error creating hard link: {}", e));
                             }
-                            if let Err(_) = rename(&tmp, &lnk) {
+                            if let Err(e) = rename(&tmp, &lnk) {
                                 remove_file(&tmp).map_err(|e|
                                     format!("Error removing file after failed \
                                              renaming: {}", e))?;
-                                continue;
+                                return Err(format!(
+                                    "Error renaming hard link: {}", e));
                             }
                             count += 1;
                             size += tgt_size;
