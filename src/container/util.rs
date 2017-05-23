@@ -318,7 +318,7 @@ pub fn check_signature(cont_dir: &Path)
 
 #[cfg(feature="containers")]
 pub fn find_and_link_identical_files(
-    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dir: &Path)
+    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dirs: &[PathBuf])
     -> Result<(u32, u64), String>
 {
     let container_root = cont_dir.join("root");
@@ -333,7 +333,7 @@ pub fn find_and_link_identical_files(
         "Error parsing signature file: {err}");
 
     let _paths_names_times = get_container_paths_names_times(
-        roots_dir, &roots_dir.join(cont_ver))?;
+        roots_dirs, cont_dir)?;
     let mut paths_names_times = _paths_names_times.iter()
         .map(|&(ref p, ref n, ref t)| (p, n, t))
         .collect::<Vec<_>>();
@@ -458,13 +458,34 @@ pub fn find_and_link_identical_files(
     unimplemented!();
 }
 
-fn get_container_paths_names_times(roots_dir: &Path, exclude_path: &Path)
+pub fn hardlink_containers(root_dirs: &[PathBuf]) -> Result<(), String> {
+    let mut merged_ds_builder = FileMergeBuilder::new();
+    for cont_dir in root_dirs {
+        merged_ds_builder.add(&cont_dir.join("root"),
+                              &cont_dir.join("index.ds1"));
+    }
+    let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
+                                 "Error parsing signature files: {err}");
+    let mut merged_ds_iter = merged_ds.iter();
+
+    for entries in merged_ds_iter {
+        for entry in entries {}
+    }
+}
+
+fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
     -> Result<Vec<(PathBuf, String, SystemTime)>, String>
 {
-    Ok(try_msg!(read_dir(roots_dir),
-                "Error reading directory: {err}")
-        .filter_map(|x| x.ok())
-        .map(|x| x.path())
+    let mut cont_dirs = vec!();
+    for dir in roots_dirs {
+        for entry in try_msg!(read_dir(dir), "Error reading directory: {err}") {
+            if let Ok(entry) = entry {
+                cont_dirs.push(entry.path());
+            }
+        }
+    }
+
+    Ok(cont_dirs.into_iter()
         .filter(|p| {
             p != exclude_path &&
                 p.is_dir() &&

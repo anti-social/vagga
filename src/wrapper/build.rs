@@ -383,14 +383,14 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
             }
         };
     let dir_name = format!("{}.{}", cont_info.name, &ver[..8]);
-    let roots_dir = Path::new("/vagga/base/.roots");
+    let roots_dir = PathBuf::from("/vagga/base/.roots");
     let finalpath = roots_dir.join(&dir_name);
 
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
         match find_and_link_identical_files(
-            cont_info.name, &dir_name, &cont_info.tmp_root_dir, &roots_dir)
+            cont_info.name, &dir_name, &cont_info.tmp_root_dir, &[roots_dir])
         {
             Ok((count, size)) if count > 0 => warn!(
                 "Found and linked {} ({}) identical files \

@@ -1,3 +1,4 @@
+use std::fs::read_dir;
 use std::io::{stdout, stderr};
 
 use argparse::{ArgumentParser};
@@ -195,8 +196,38 @@ pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
         write_container_signature(&cont_dir)?;
     }
 
+    let roots_dirs = if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
+        warn!("Storage dir is: {:?}", storage_dir);
+        let mut roots_dirs = vec!();
+        for entry in try_msg!(read_dir(storage_dir),
+                              "Error reading directory: {err}")
+        {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    if path.starts_with(".") {
+                        continue;
+                    }
+                    let roots = path.join(".roots");
+                    if !roots.exists() {
+                        continue;
+                    }
+                    let index = roots.join("index.ds1");
+                    if !index.exists() {
+                        write_container_signature(&roots)?;
+                    }
+                    roots_dirs.push(roots);
+                },
+                Err(e) => continue,
+            }
+        }
+        roots_dirs
+    } else {
+        vec!(roots_dir)
+    };
+
     match find_and_link_identical_files(
-        &container, &ver, &cont_dir, &roots_dir)
+        &container, &ver, &cont_dir, &roots_dirs[..])
     {
         Ok((count, size)) => {
             warn!("Found and linked {} ({}) identical files \
