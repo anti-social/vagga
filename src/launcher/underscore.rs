@@ -14,7 +14,7 @@ use file_util::human_size;
 use super::network;
 use super::build::{build_container};
 use super::wrap::Wrapper;
-use container::util::{version_from_symlink, find_and_link_identical_files};
+use container::util::{version_from_symlink, hardlink_identical_files};
 use container::util::{write_container_signature, check_signature};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
@@ -168,17 +168,17 @@ pub fn version_hash(ctx: &Context, cname: &str, mut args: Vec<String>)
                          cname, e))
 }
 
-pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
+pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
     -> Result<i32, String>
 {
+    let mut global = false;
     args.insert(0, "vagga _hardlink".to_string());
-    let mut container = "".to_string();
     {
         let mut ap = ArgumentParser::new();
-        ap.set_description("Indexes and hardlinks the container");
-        ap.refer(&mut container)
-            .add_argument("container", Store,
-                          "Container to hardlink files from");
+        ap.set_description("Indexes and hardlinks containers");
+        ap.refer(&mut global)
+            .add_option(&["--global"], StoreTrue,
+                        "Hardlink containers between projects.");
         ap.stop_on_first_argument(true);
         match ap.parse(args.clone(), &mut stdout(), &mut stderr()) {
             Ok(()) => {},
@@ -188,13 +188,13 @@ pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
     }
 
     let vagga_dir = ctx.config_dir.join(".vagga");
-    let ver = version_from_symlink(vagga_dir.join(&container))?;
+    // let ver = version_from_symlink(vagga_dir.join(&container))?;
 
-    let roots_dir = vagga_dir.join(".roots");
-    let cont_dir = roots_dir.join(&ver);
-    if !cont_dir.join("index.ds1").exists() {
-        write_container_signature(&cont_dir)?;
-    }
+    // let roots_dir = vagga_dir.join(".roots");
+    // let cont_dir = roots_dir.join(&ver);
+    // if !cont_dir.join("index.ds1").exists() {
+    //     write_container_signature(&cont_dir)?;
+    // }
 
     let roots_dirs = if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
         warn!("Storage dir is: {:?}", storage_dir);
@@ -223,17 +223,44 @@ pub fn hardlink_container(ctx: &Context, mut args: Vec<String>)
         }
         roots_dirs
     } else {
-        vec!(roots_dir)
+        let roots_dir = vagga_dir.join(".roots");
+        let mut roots_dirs = vec!();
+        for entry in try_msg!(read_dir(&roots_dir),
+            "Error reading directory {path:?}: {err}", path=&roots_dir)
+        {
+            match entry {
+                Ok(entry) => {
+                    let root_dir = entry.path();
+                    if !root_dir.is_dir() {
+                        continue;
+                    }
+                    if root_dir.file_name()
+                        .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                    {
+                        continue;
+                    }
+                    let index_path = root_dir.join("index.ds1");
+                    if !index_path.exists() {
+                        warn!("Writing index into {:?}", &root_dir);
+                        write_container_signature(&root_dir)?;
+                    }
+                    roots_dirs.push(root_dir);
+                },
+                Err(e) => continue,
+            }
+        }
+        roots_dirs
     };
 
-    match find_and_link_identical_files(
-        &container, &ver, &cont_dir, &roots_dirs[..])
-    {
-        Ok((count, size)) => {
-            warn!("Found and linked {} ({}) identical files \
-                   from other containers", count, human_size(size));
+    match hardlink_identical_files(&roots_dirs[..]) {
+        Ok(()) => {
             Ok(0)
         },
+        // Ok((count, size)) => {
+        //     warn!("Found and linked {} ({}) identical files \
+        //            from other containers", count, human_size(size));
+        //     Ok(0)
+        // },
         Err(msg) => {
             Err(format!("Error when linking container files: {}", msg))
         },

@@ -302,7 +302,7 @@ pub fn run(input_args: Vec<String>) -> i32 {
             commands::update_symlinks(&context, args)
         }
         "_hardlink" => {
-            underscore::hardlink_container(&context, args)
+            underscore::hardlink_containers(&context, args)
         }
         "_verify" => {
             underscore::verify_container(&context, args)

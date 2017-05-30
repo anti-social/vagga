@@ -269,14 +269,14 @@ pub fn check_signature(cont_dir: &Path)
                     Some(Ok(real_entry)) => {
                         if entry != real_entry {
                             diff.corrupted_paths.push(
-                                entry.get_path().to_path_buf());
+                                entry.path().to_path_buf());
                         }
                     },
                     Some(Err(e)) => {
                         return Err(CheckSignatureError::from(e));
                     },
                     None => {
-                        diff.missing_paths.push(entry.get_path().to_path_buf());
+                        diff.missing_paths.push(entry.path().to_path_buf());
                     },
                 }
             }
@@ -297,7 +297,7 @@ pub fn check_signature(cont_dir: &Path)
                     return Err(CheckSignatureError::from(e));
                 },
                 None => {
-                    diff.extra_paths.push(real_entry.get_path().to_path_buf());
+                    diff.extra_paths.push(real_entry.path().to_path_buf());
                 },
                 _ => {},
             }
@@ -458,7 +458,9 @@ pub fn find_and_link_identical_files(
     unimplemented!();
 }
 
-pub fn hardlink_containers(root_dirs: &[PathBuf]) -> Result<(), String> {
+pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
     let mut merged_ds_builder = FileMergeBuilder::new();
     for cont_dir in root_dirs {
         merged_ds_builder.add(&cont_dir.join("root"),
@@ -468,9 +470,46 @@ pub fn hardlink_containers(root_dirs: &[PathBuf]) -> Result<(), String> {
                                  "Error parsing signature files: {err}");
     let mut merged_ds_iter = merged_ds.iter();
 
-    for entries in merged_ds_iter {
-        for entry in entries {}
+    for roots_and_entries in merged_ds_iter {
+        let mut entries = vec!();
+        for (root, entry) in roots_and_entries {
+            let entry = entry.unwrap();
+            let meta = try_msg!(entry.path().symlink_metadata(),
+                                "Error querying file metadata: {err}");
+            warn!("{:?}: {:?}", root, entry.path());
+            entries.push((root, entry, meta));
+        }
+        entries.sort_by_key(|&(_, _, ref m)| m.ino());
+        warn!("{:?}", &entries);
+
+        let mut prev = None;
+        for (root, entry, meta) in entries {
+            let ino = meta.ino();
+            if let Some((ref prev_root, ref prev_entry, ref prev_ino)) = prev {
+                if ino == *prev_ino {
+                    continue;
+                }
+                if entry == *prev_entry {
+                    let path = root.join(
+                        match entry.path().strip_prefix("/") {
+                            Ok(p) => p,
+                            Err(_) => continue,
+                        });
+                    let prev_path = prev_root.join(
+                        match prev_entry.path().strip_prefix("/") {
+                            Ok(p) => p,
+                            Err(_) => continue,
+                        });
+                    warn!("{:?} -> {:?}", path, prev_path);
+                    // hardlink_files();
+                }
+            } else {
+                prev = Some((root, entry, ino));
+            }
+        }
     }
+
+    Ok(())
 }
 
 fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
