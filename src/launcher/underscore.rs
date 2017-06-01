@@ -1,5 +1,6 @@
 use std::fs::read_dir;
 use std::io::{stdout, stderr};
+use std::path::{Path, PathBuf};
 
 use argparse::{ArgumentParser};
 use argparse::{StoreTrue, List, StoreOption, Store};
@@ -188,84 +189,89 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
     }
 
     let vagga_dir = ctx.config_dir.join(".vagga");
-    // let ver = version_from_symlink(vagga_dir.join(&container))?;
 
-    // let roots_dir = vagga_dir.join(".roots");
-    // let cont_dir = roots_dir.join(&ver);
-    // if !cont_dir.join("index.ds1").exists() {
-    //     write_container_signature(&cont_dir)?;
-    // }
+    if global && ctx.ext_settings.storage_dir.is_none() {
+        error!("The --global flag is only meaningful if you configure \
+                storage-dir in settings");
+        return Ok(2);
+    }
 
-    let roots_dirs = if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
-        warn!("Storage dir is: {:?}", storage_dir);
-        let mut roots_dirs = vec!();
-        for entry in try_msg!(read_dir(storage_dir),
-                              "Error reading directory: {err}")
-        {
-            match entry {
-                Ok(entry) => {
-                    let path = entry.path();
-                    if path.starts_with(".") {
-                        continue;
-                    }
-                    let roots = path.join(".roots");
-                    if !roots.exists() {
-                        continue;
-                    }
-                    let index = roots.join("index.ds1");
-                    if !index.exists() {
-                        write_container_signature(&roots)?;
-                    }
-                    roots_dirs.push(roots);
-                },
-                Err(e) => continue,
+    let root_dirs = if global {
+        if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
+            warn!("Storage dir is: {:?}", storage_dir);
+            let mut root_dirs = vec!();
+            for entry in try_msg!(read_dir(storage_dir),
+                                  "Error reading directory: {err}")
+            {
+                match entry {
+                    Ok(entry) => {
+                        let project_dir = entry.path();
+                        if !project_dir.is_dir() {
+                            continue;
+                        }
+                        if project_dir.file_name()
+                            .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                        {
+                            continue;
+                        }
+                        let roots = project_dir.join(".roots");
+                        root_dirs.append(&mut collect_root_dirs(&roots)?);
+                    },
+                    Err(e) => continue,
+                }
             }
+            root_dirs
+        } else {
+            error!("The --global flag is only meaningful if you configure \
+                    storage-dir in settings");
+            return Ok(2);
         }
-        roots_dirs
     } else {
-        let roots_dir = vagga_dir.join(".roots");
-        let mut roots_dirs = vec!();
-        for entry in try_msg!(read_dir(&roots_dir),
-            "Error reading directory {path:?}: {err}", path=&roots_dir)
-        {
-            match entry {
-                Ok(entry) => {
-                    let root_dir = entry.path();
-                    if !root_dir.is_dir() {
-                        continue;
-                    }
-                    if root_dir.file_name()
-                        .map_or(false, |n| n.to_string_lossy().starts_with("."))
-                    {
-                        continue;
-                    }
-                    let index_path = root_dir.join("index.ds1");
-                    if !index_path.exists() {
-                        warn!("Writing index into {:?}", &root_dir);
-                        write_container_signature(&root_dir)?;
-                    }
-                    roots_dirs.push(root_dir);
-                },
-                Err(e) => continue,
-            }
-        }
-        roots_dirs
+        collect_root_dirs(&vagga_dir.join(".roots"))?
     };
 
-    match hardlink_identical_files(&roots_dirs[..]) {
+    for root_dir in &root_dirs {
+        let index_path = root_dir.join("index.ds1");
+        if !index_path.exists() {
+            warn!("Writing index into {:?}", &root_dir);
+            write_container_signature(&root_dir)?;
+        }
+    }
+
+    match hardlink_identical_files(&root_dirs[..]) {
         Ok((count, size)) => {
-            warn!("Found and linked {} ({}) identical files", count, human_size(size));
+            warn!("Found and linked {} ({}) identical files",
+                  count, human_size(size));
             Ok(0)
         },
-        // Ok((count, size)) => {
-        //     warn!("Found and linked {} ({}) identical files \
-        //            from other containers", count, human_size(size));
-        //     Ok(0)
-        // },
         Err(msg) => {
             Err(format!("Error when linking container files: {}", msg))
         },
     }
+}
+
+fn collect_root_dirs(roots: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut root_dirs = vec!();
+    for entry in try_msg!(read_dir(&roots),
+        "Error reading directory {path:?}: {err}", path=&roots)
+    {
+        match entry {
+            Ok(entry) => {
+                let root_dir = entry.path();
+                if !root_dir.is_dir() {
+                    continue;
+                }
+                if root_dir.file_name()
+                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                {
+                    continue;
+                }
+                root_dirs.push(root_dir);
+            },
+            Err(e) => continue,
+        }
+    }
+    Ok(root_dirs)
 }
 
 pub fn verify_container(ctx: &Context, mut args: Vec<String>)
