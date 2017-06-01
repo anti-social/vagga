@@ -42,13 +42,19 @@ setup() {
     printf "%s\n" "${lines[@]}"
     [[ $status = 0 ]]
 
-    rm .vagga/hello-and-bye/etc/hello.txt
+    echo "Hi!" > .vagga/hello-and-bye/etc/hello.txt
     touch .vagga/hello-and-bye/etc/bonjour.txt
-    echo "Au Revoir!" > .vagga/hello-and-bye/etc/bye.txt
+    rm .vagga/hello-and-bye/etc/bye.txt
+
     run vagga _verify hello-and-bye
     printf "%s\n" "${lines[@]}"
     [[ $status = 1 ]]
     [[ $output = *"/etc/hello.txt"* ]]
     [[ $output = *"/etc/bonjour.txt"* ]]
     [[ $output = *"/etc/bye.txt"* ]]
+
+    run vagga _verify hello
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 1 ]]
+    [[ $output = *"/etc/hello.txt"* ]]
 }

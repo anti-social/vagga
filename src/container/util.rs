@@ -458,58 +458,60 @@ pub fn find_and_link_identical_files(
     unimplemented!();
 }
 
-pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(), String> {
+pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(usize, usize), String> {
+    use std::collections::HashMap;
     use std::os::unix::fs::MetadataExt;
+    // use itertools::Itertools;
+    use dir_signature::v1::Entry;
 
     let mut merged_ds_builder = FileMergeBuilder::new();
     for cont_dir in root_dirs {
-        merged_ds_builder.add(&cont_dir.join("root"),
+        merged_ds_builder.add(cont_dir,
                               &cont_dir.join("index.ds1"));
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
                                  "Error parsing signature files: {err}");
     let mut merged_ds_iter = merged_ds.iter();
 
-    for roots_and_entries in merged_ds_iter {
-        let mut entries = vec!();
-        for (root, entry) in roots_and_entries {
+    let mut count = 0;
+    'outer:
+    for cont_dirs_and_entries in merged_ds_iter {
+        let mut grouped_entries = HashMap::new();
+        for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
             let entry = entry.unwrap();
-            let meta = try_msg!(entry.path().symlink_metadata(),
-                                "Error querying file metadata: {err}");
-            warn!("{:?}: {:?}", root, entry.path());
-            entries.push((root, entry, meta));
+            match entry {
+                Entry::File{..} => {
+                    grouped_entries.entry(entry)
+                        .or_insert(vec!()).push(cont_dir);
+                },
+                Entry::Dir(..) | Entry::Link(..) => continue 'outer,
+            }
         }
-        entries.sort_by_key(|&(_, _, ref m)| m.ino());
-        warn!("{:?}", &entries);
 
-        let mut prev = None;
-        for (root, entry, meta) in entries {
-            let ino = meta.ino();
-            if let Some((ref prev_root, ref prev_entry, ref prev_ino)) = prev {
-                if ino == *prev_ino {
+        for (entry, cont_dirs) in grouped_entries.iter() {
+            let path = entry.path().strip_prefix("/").unwrap();
+            let mut tgt: Option<(PathBuf, u64)> = None;
+            for cont_dir in cont_dirs {
+                let root_dir = cont_dir.join("root");
+                let tmp_path = cont_dir.join(".lnk.tmp");
+                let lnk_path = root_dir.join(path);
+                let meta = lnk_path.symlink_metadata().unwrap();
+                if let Some((ref tgt_path, tgt_ino)) = tgt {
+                    if meta.ino() != tgt_ino {
+                        safe_hardlink(tgt_path, &lnk_path, &tmp_path);
+                        // warn!("Linked: {:?} -> {:?}", tgt_path, &lnk_path);
+                        count += 1;
+                    }
+                } else {
+                    tgt = Some((lnk_path, meta.ino()));
                     continue;
                 }
-                if entry == *prev_entry {
-                    let path = root.join(
-                        match entry.path().strip_prefix("/") {
-                            Ok(p) => p,
-                            Err(_) => continue,
-                        });
-                    let prev_path = prev_root.join(
-                        match prev_entry.path().strip_prefix("/") {
-                            Ok(p) => p,
-                            Err(_) => continue,
-                        });
-                    warn!("{:?} -> {:?}", path, prev_path);
-                    // hardlink_files();
-                }
-            } else {
-                prev = Some((root, entry, ino));
+                // warn!("-> {:?}", &lnk_path);
             }
         }
     }
 
-    Ok(())
+    Ok((count, 0))
 }
 
 fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
@@ -549,4 +551,35 @@ fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
                 .map(|t| (p, n, t))
         })
         .collect::<Vec<_>>())
+}
+
+quick_error!{
+    #[derive(Debug)]
+    pub enum HardlinkError {
+        Create(err: io::Error) {
+            description("error creating hard link")
+            display("Error creating hard link: {}", err)
+        }
+        Rename(err: io::Error) {
+            description("error renaming file")
+            display("Error renaming file: {}", err)
+        }
+        Remove(err: io::Error) {
+            description("error removing file")
+            display("Error removing file: {}", err)
+        }
+    }
+}
+
+fn safe_hardlink(tgt: &Path, lnk: &Path, tmp: &Path)
+    -> Result<(), HardlinkError>
+{
+    if let Err(e) = hard_link(&tgt, &tmp) {
+        return Err(HardlinkError::Create(e));
+    }
+    if let Err(e) = rename(&tmp, &lnk) {
+        remove_file(&tmp).map_err(|e| HardlinkError::Remove(e))?;
+        return Err(HardlinkError::Rename(e));
+    }
+    Ok(())
 }

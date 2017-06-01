@@ -7,7 +7,7 @@ dependencies = [
  "blake2 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bzip2 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "digest-writer 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "dir-signature 0.1.1 (git+https://github.com/anti-social/dir-signature.git?rev=77f9290)",
+ "dir-signature 0.1.1 (git+https://github.com/anti-social/dir-signature.git?rev=3e3c321)",
  "docopt 0.6.86 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flate2 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -165,7 +165,7 @@ dependencies = [
 [[package]]
 name = "dir-signature"
 version = "0.1.1"
-source = "git+https://github.com/anti-social/dir-signature.git?rev=77f9290#77f929012c544bf833601fdfaf39de41e99c7b7e"
+source = "git+https://github.com/anti-social/dir-signature.git?rev=3e3c321#3e3c3216f6ce5e29f5d061edd94e90beb6dcbb32"
 dependencies = [
  "argparse 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "blake2 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -838,7 +838,7 @@ dependencies = [
 "checksum digest 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "867593eac3ccb902465375ee94401490009054da278d4bb2f11a6f8b5bfeca98"
 "checksum digest-buffer 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "59789dfde9b5461a582b55d721698169a5ad27927b5d8fb07cdfecc013b63f28"
 "checksum digest-writer 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8584c31eb1c21996908c5560d036798ee150955c8cc19f78cfeeef3277f811c1"
-"checksum dir-signature 0.1.1 (git+https://github.com/anti-social/dir-signature.git?rev=77f9290)" = "<none>"
+"checksum dir-signature 0.1.1 (git+https://github.com/anti-social/dir-signature.git?rev=3e3c321)" = "<none>"
 "checksum docopt 0.6.86 (registry+https://github.com/rust-lang/crates.io-index)" = "4a7ef30445607f6fc8720f0a0a2c7442284b629cf0d049286860fae23e71c4d9"
 "checksum either 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "3d2b503c86dad62aaf414ecf2b8c527439abedb3f8d812537f0b12bfd6f32a91"
 "checksum env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "15abd780e45b3ea4f76b4e9a26ff4843258dd8a3eed2775a0e7368c2e7936c2f"

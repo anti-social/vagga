@@ -253,7 +253,8 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
     };
 
     match hardlink_identical_files(&roots_dirs[..]) {
-        Ok(()) => {
+        Ok((count, size)) => {
+            warn!("Found and linked {} files", count);
             Ok(0)
         },
         // Ok((count, size)) => {
