@@ -479,34 +479,38 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(usize, usize),
         let mut grouped_entries = HashMap::new();
         for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
             let entry = entry.unwrap();
+            let path = cont_dir.join("root").join(entry.path()
+                                                  .strip_prefix("/").unwrap());
+            let meta = path.symlink_metadata().unwrap();
             match entry {
                 Entry::File{..} => {
-                    grouped_entries.entry(entry)
+                    grouped_entries.entry((entry, meta.mode(), meta.uid(), meta.gid()))
                         .or_insert(vec!()).push(cont_dir);
                 },
                 Entry::Dir(..) | Entry::Link(..) => continue 'outer,
             }
         }
 
-        for (entry, cont_dirs) in grouped_entries.iter() {
-            let path = entry.path().strip_prefix("/").unwrap();
+        for (&(ref entry, ..), cont_dirs) in grouped_entries.iter() {
             let mut tgt: Option<(PathBuf, u64)> = None;
             for cont_dir in cont_dirs {
                 let root_dir = cont_dir.join("root");
                 let tmp_path = cont_dir.join(".lnk.tmp");
+                let path = entry.path().strip_prefix("/").unwrap();
                 let lnk_path = root_dir.join(path);
                 let meta = lnk_path.symlink_metadata().unwrap();
                 if let Some((ref tgt_path, tgt_ino)) = tgt {
                     if meta.ino() != tgt_ino {
-                        safe_hardlink(tgt_path, &lnk_path, &tmp_path);
-                        // warn!("Linked: {:?} -> {:?}", tgt_path, &lnk_path);
+                        safe_hardlink(tgt_path, &lnk_path, &tmp_path)
+                            .map_err(|e| format!("Error hard linking: {}", e))?;
+                        warn!("Linked: {:?} -> {:?}", tgt_path, &lnk_path);
                         count += 1;
                     }
                 } else {
                     tgt = Some((lnk_path, meta.ino()));
                     continue;
                 }
-                // warn!("-> {:?}", &lnk_path);
+                warn!("-> {:?}", &lnk_path);
             }
         }
     }
