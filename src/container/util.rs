@@ -458,7 +458,7 @@ pub fn find_and_link_identical_files(
     unimplemented!();
 }
 
-pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(usize, usize), String> {
+pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), String> {
     use std::collections::HashMap;
     use std::os::unix::fs::MetadataExt;
     // use itertools::Itertools;
@@ -471,12 +471,13 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(usize, usize),
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
                                  "Error parsing signature files: {err}");
-    let mut merged_ds_iter = merged_ds.iter();
+    let merged_ds_iter = merged_ds.iter();
 
     let mut count = 0;
+    let mut size = 0;
+    let mut grouped_entries = HashMap::with_capacity(root_dirs.len());
     'outer:
     for cont_dirs_and_entries in merged_ds_iter {
-        let mut grouped_entries = HashMap::new();
         for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
             let entry = entry.unwrap();
             let path = cont_dir.join("root").join(entry.path()
@@ -485,37 +486,36 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(usize, usize),
             match entry {
                 Entry::File{..} => {
                     grouped_entries.entry((entry, meta.mode(), meta.uid(), meta.gid()))
-                        .or_insert(vec!()).push(cont_dir);
+                        .or_insert(vec!()).push((cont_dir, path, meta));
                 },
                 Entry::Dir(..) | Entry::Link(..) => continue 'outer,
             }
         }
 
-        for (&(ref entry, ..), cont_dirs) in grouped_entries.iter() {
+        for paths_and_metas in grouped_entries.values() {
             let mut tgt: Option<(PathBuf, u64)> = None;
-            for cont_dir in cont_dirs {
-                let root_dir = cont_dir.join("root");
+            for &(ref cont_dir, ref path, ref meta) in paths_and_metas {
                 let tmp_path = cont_dir.join(".lnk.tmp");
-                let path = entry.path().strip_prefix("/").unwrap();
-                let lnk_path = root_dir.join(path);
-                let meta = lnk_path.symlink_metadata().unwrap();
                 if let Some((ref tgt_path, tgt_ino)) = tgt {
                     if meta.ino() != tgt_ino {
-                        safe_hardlink(tgt_path, &lnk_path, &tmp_path)
+                        safe_hardlink(tgt_path, path, &tmp_path)
                             .map_err(|e| format!("Error hard linking: {}", e))?;
-                        warn!("Linked: {:?} -> {:?}", tgt_path, &lnk_path);
+                        warn!("Linked: {:?} -> {:?}", tgt_path, &path);
                         count += 1;
+                        size += meta.size();
                     }
                 } else {
-                    tgt = Some((lnk_path, meta.ino()));
+                    tgt = Some((path.to_path_buf(), meta.ino()));
                     continue;
                 }
-                warn!("-> {:?}", &lnk_path);
+                warn!("-> {:?}", &path);
             }
         }
+
+        grouped_entries.clear();
     }
 
-    Ok((count, 0))
+    Ok((count, size))
 }
 
 fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
