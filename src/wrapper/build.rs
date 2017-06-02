@@ -20,7 +20,7 @@ use builder::context::Context;
 use builder::commands::tarcmd::unpack_file;
 use capsule::download::maybe_download_and_check_hashsum;
 use config::{Config, Container, Settings};
-use container::util::{clean_dir, find_and_link_identical_files};
+use container::util::{clean_dir, hardlink_container_files};
 use container::util::write_container_signature;
 use container::mount::{unmount};
 use file_util::{Dir, Lock, copy, human_size};
@@ -389,8 +389,8 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
-        match find_and_link_identical_files(
-            cont_info.name, &dir_name, &cont_info.tmp_root_dir, &[roots_dir])
+        match hardlink_container_files(
+            cont_info.name, &finalpath, &cont_info.tmp_root_dir, &[roots_dir])
         {
             Ok((count, size)) if count > 0 => warn!(
                 "Found and linked {} ({}) identical files \

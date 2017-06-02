@@ -317,12 +317,12 @@ pub fn check_signature(cont_dir: &Path)
 }
 
 #[cfg(feature="containers")]
-pub fn find_and_link_identical_files(
-    container_name: &str, cont_ver: &str, cont_dir: &Path, root_dirs: &[PathBuf])
+pub fn hardlink_container_files(container_name: &str,
+    tmp_dir: &Path, final_dir: &Path, root_dirs: &[PathBuf])
     -> Result<(u32, u64), String>
 {
-    let container_root = cont_dir.join("root");
-    let main_ds_path = cont_dir.join("index.ds1");
+    let container_root = tmp_dir.join("root");
+    let main_ds_path = tmp_dir.join("index.ds1");
     if !main_ds_path.exists() {
         warn!("No index file exists. Can't hardlink");
         return Ok((0, 0));
@@ -333,7 +333,7 @@ pub fn find_and_link_identical_files(
         "Error parsing signature file: {err}");
 
     let _paths_names_times = get_container_paths_names_times(
-        root_dirs, cont_dir)?;
+        root_dirs, final_dir)?;
     let mut paths_names_times = _paths_names_times.iter()
         .map(|&(ref p, ref n, ref t)| (p, n, t))
         .collect::<Vec<_>>();
@@ -358,7 +358,7 @@ pub fn find_and_link_identical_files(
         "Error parsing signature files: {err}");
     let mut merged_ds_iter = merged_ds.iter();
 
-    let tmp = cont_dir.join(".link.tmp");
+    let tmp = tmp_dir.join(".link.tmp");
     if tmp.exists() {
         remove_file(&tmp).map_err(|e|
             format!("Error removing temp file: {}", e))?;
@@ -451,8 +451,8 @@ pub fn find_and_link_identical_files(
 }
 
 #[cfg(not(feature="containers"))]
-pub fn find_and_link_identical_files(
-    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dir: &Path)
+pub fn hardlink_container_files(container_name: &str,
+    tmp_dir: &Path, final_dir: &Path, root_dirs: &[PathBuf])
     -> Result<(u32, u64), String>
 {
     unimplemented!();
