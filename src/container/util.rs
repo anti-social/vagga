@@ -318,7 +318,7 @@ pub fn check_signature(cont_dir: &Path)
 
 #[cfg(feature="containers")]
 pub fn find_and_link_identical_files(
-    container_name: &str, cont_ver: &str, cont_dir: &Path, roots_dirs: &[PathBuf])
+    container_name: &str, cont_ver: &str, cont_dir: &Path, root_dirs: &[PathBuf])
     -> Result<(u32, u64), String>
 {
     let container_root = cont_dir.join("root");
@@ -333,7 +333,7 @@ pub fn find_and_link_identical_files(
         "Error parsing signature file: {err}");
 
     let _paths_names_times = get_container_paths_names_times(
-        roots_dirs, cont_dir)?;
+        root_dirs, cont_dir)?;
     let mut paths_names_times = _paths_names_times.iter()
         .map(|&(ref p, ref n, ref t)| (p, n, t))
         .collect::<Vec<_>>();
@@ -518,11 +518,11 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), Str
     Ok((count, size))
 }
 
-fn get_container_paths_names_times(roots_dirs: &[PathBuf], exclude_path: &Path)
+fn get_container_paths_names_times(root_dirs: &[PathBuf], exclude_path: &Path)
     -> Result<Vec<(PathBuf, String, SystemTime)>, String>
 {
     let mut cont_dirs = vec!();
-    for dir in roots_dirs {
+    for dir in root_dirs {
         for entry in try_msg!(read_dir(dir), "Error reading directory: {err}") {
             if let Ok(entry) = entry {
                 cont_dirs.push(entry.path());

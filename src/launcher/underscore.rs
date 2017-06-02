@@ -14,6 +14,7 @@ use file_util::human_size;
 
 use super::network;
 use super::build::{build_container};
+use super::storage_dir;
 use super::wrap::Wrapper;
 use container::util::{version_from_symlink, hardlink_identical_files};
 use container::util::{write_container_signature, check_signature};
@@ -188,8 +189,6 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
         }
     }
 
-    let vagga_dir = ctx.config_dir.join(".vagga");
-
     if global && ctx.ext_settings.storage_dir.is_none() {
         error!("The --global flag is only meaningful if you configure \
                 storage-dir in settings");
@@ -200,8 +199,7 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
         if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
             warn!("Storage dir is: {:?}", storage_dir);
             let mut root_dirs = vec!();
-            for entry in try_msg!(read_dir(storage_dir),
-                                  "Error reading directory: {err}")
+            for entry in try_msg!(read_dir(storage_dir), "Error reading directory: {err}")
             {
                 match entry {
                     Ok(entry) => {
@@ -217,17 +215,23 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
                         let roots = project_dir.join(".roots");
                         root_dirs.append(&mut collect_root_dirs(&roots)?);
                     },
-                    Err(e) => continue,
+                    Err(e) => {
+                        return Err(format!("Error iterating directory: {}", e));
+                    },
                 }
             }
             root_dirs
         } else {
-            error!("The --global flag is only meaningful if you configure \
-                    storage-dir in settings");
-            return Ok(2);
+            return Err(format!(
+                "The --global flag is only meaningful if you configure \
+                 storage-dir in settings"));
         }
     } else {
-        collect_root_dirs(&vagga_dir.join(".roots"))?
+        let roots = storage_dir::get_base(ctx)
+            .map(|x| x.join(".roots"))
+            .ok_or_else(|| format!(
+                "storage dir created by preceding container build"))?;
+        collect_root_dirs(&roots)?
     };
 
     for root_dir in &root_dirs {
@@ -268,7 +272,9 @@ fn collect_root_dirs(roots: &Path) -> Result<Vec<PathBuf>, String> {
                 }
                 root_dirs.push(root_dir);
             },
-            Err(e) => continue,
+            Err(e) => {
+                return Err(format!("Error iterating directory: {}", e));
+            },
         }
     }
     Ok(root_dirs)

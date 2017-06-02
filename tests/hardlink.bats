@@ -33,6 +33,48 @@ setup() {
     [[ $(stat -c "%h" .vagga/hello-and-bye/etc/bye.txt) = 1 ]]
 }
 
+@test "hardlink global" {
+    rm -rf .storage
+    mkdir .storage
+    export VAGGA_SETTINGS="
+        storage-dir: /work/tests/hardlink/.storage
+    "
+
+    cd /work/tests/hardlink/project-1
+    rm -rf .vagga
+    run vagga _build --force hello
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+    link=$(readlink .vagga/hello)
+    [[ $link = ".lnk/.roots/hello.0ae0aab6/root" ]]
+
+    run vagga _build --force hi
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+    link=$(readlink .vagga/hi)
+    [[ $link = ".lnk/.roots/hi.079e4655/root" ]]
+
+    run vagga _hardlink --global
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+    # 1 hardlink was created because of /etc/resolv.conf
+    [[ $output = *"Found and linked 1"* ]]
+
+    cd /work/tests/hardlink/project-2
+    rm -rf .vagga
+    run vagga _build --force hello-and-bye
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+    link=$(readlink .vagga/hello-and-bye)
+    [[ $link = ".lnk/.roots/hello-and-bye.84b3175b/root" ]]
+
+    run vagga _hardlink --global
+    printf "%s\n" "${lines[@]}"
+    [[ $status = 0 ]]
+    # There are 2 hardlinks because of /etc/resolv.conf
+    [[ $output = *"Found and linked 2"* ]]
+}
+
 @test "verify cmd" {
     vagga _build --force hello
     vagga _build --force hello-and-bye
