@@ -22,6 +22,7 @@ use capsule::download::maybe_download_and_check_hashsum;
 use config::{Config, Container, Settings};
 use container::util::{clean_dir, hardlink_container_files};
 use container::util::write_container_signature;
+use container::util::collect_containers_from_storage;
 use container::mount::{unmount};
 use file_util::{Dir, Lock, copy, human_size};
 use process_util::{capture_fd3_status, copy_env_vars};
@@ -62,35 +63,35 @@ fn prepare_tmp_root_dir(path: &Path) -> Result<(), String> {
              .map_err(|x| format!("Error removing directory: {}", x))?;
     }
     try_msg!(Dir::new(path).recursive(true).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     let rootdir = path.join("root");
     try_msg!(Dir::new(&rootdir).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
 
     let tgtbase = Path::new("/vagga/container");
     try_msg!(Dir::new(&tgtbase).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(BindMount::new(path, &tgtbase).mount(),
         "mount container: {err}");
 
     let tgtroot = Path::new("/vagga/root");
     try_msg!(Dir::new(&tgtroot).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(BindMount::new(&rootdir, &tgtroot).mount(),
         "mount container root: {err}");
 
     try_msg!(Dir::new(&tgtroot.join("dev")).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(Dir::new(&tgtroot.join("sys")).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(Dir::new(&tgtroot.join("proc")).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(Dir::new(&tgtroot.join("run")).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(Dir::new(&tgtroot.join("tmp")).mode(0o1777).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     try_msg!(Dir::new(&tgtroot.join("work")).create(),
-         "Error creating directory: {err}");
+        "Error creating directory: {err}");
     return Ok(());
 }
 
@@ -317,7 +318,6 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
         return Ok(dir_name);
     }
 
-
     prepare_tmp_root_dir(&cont_info.tmp_root_dir).map_err(|e|
         format!("Error preparing root dir: {}", e))?;
 
@@ -389,8 +389,13 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
+        if wrapper.ext_settings.storage_dir.is_some() {
+            let cont_dirs = collect_containers_from_storage(
+                Path::new("/vagga/storage"))?;
+            warn!("Containers: {:?}", &cont_dirs);
+        }
         match hardlink_container_files(
-            cont_info.name, &finalpath, &cont_info.tmp_root_dir, &[roots_dir])
+            cont_info.name, &cont_info.tmp_root_dir, &finalpath, &[roots_dir])
         {
             Ok((count, size)) if count > 0 => warn!(
                 "Found and linked {} ({}) identical files \
@@ -483,6 +488,7 @@ fn _build_from_image(name: &str, container: &Container,
                         "Error unlinking cache file: {}", e)).ok();
             }
             if settings.index_all_images {
+                warn!("Indexing container...");
                 write_container_signature(cont_dir)?;
             }
         },

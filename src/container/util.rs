@@ -193,10 +193,11 @@ pub fn version_from_symlink<P: AsRef<Path>>(path: P) -> Result<String, String>
     .map(|x| x.to_string())
 }
 
-pub fn write_container_signature(cont_dir: &Path) -> Result<(), String> {
+pub fn write_container_signature(cont_dir: &Path)
+    -> Result<(), String>
+{
     let index = File::create(cont_dir.join("index.ds1"))
         .map_err(|e| format!("Can't write index: {}", e))?;
-    warn!("Indexing container...");
     v1::scan(Sig::new()
              .hash(Blake)
              .add_dir(cont_dir.join("root"), "/"),
@@ -324,7 +325,7 @@ pub fn hardlink_container_files(container_name: &str,
     let container_root = tmp_dir.join("root");
     let main_ds_path = tmp_dir.join("index.ds1");
     if !main_ds_path.exists() {
-        warn!("No index file exists. Can't hardlink");
+        warn!("No index file exists, can't hardlink container");
         return Ok((0, 0));
     }
     let main_ds_reader = BufReader::new(try_msg!(File::open(&main_ds_path),
@@ -332,8 +333,11 @@ pub fn hardlink_container_files(container_name: &str,
     let mut main_ds_parser = try_msg!(Parser::new(main_ds_reader),
         "Error parsing signature file: {err}");
 
+    warn!("Root dirs: {:?}", root_dirs);
+
     let _paths_names_times = get_container_paths_names_times(
         root_dirs, final_dir)?;
+    warn!("{:?}", _paths_names_times);
     let mut paths_names_times = _paths_names_times.iter()
         .map(|&(ref p, ref n, ref t)| (p, n, t))
         .collect::<Vec<_>>();
@@ -516,6 +520,60 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), Str
     }
 
     Ok((count, size))
+}
+
+pub fn collect_containers_from_storage(storage_dir: &Path)
+    -> Result<Vec<PathBuf>, String>
+{
+    let mut cont_dirs = vec!();
+    for entry in try_msg!(read_dir(storage_dir), "Error reading directory: {err}")
+    {
+        match entry {
+            Ok(entry) => {
+                let project_dir = entry.path();
+                if !project_dir.is_dir() {
+                    continue;
+                }
+                if project_dir.file_name()
+                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                {
+                    continue;
+                }
+                let roots = project_dir.join(".roots");
+                cont_dirs.append(&mut collect_containers(&roots)?);
+            },
+            Err(e) => {
+                return Err(format!("Error iterating directory: {}", e));
+            },
+        }
+    }
+    Ok(cont_dirs)
+}
+
+pub fn collect_containers(roots: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut cont_dirs = vec!();
+    for entry in try_msg!(read_dir(&roots),
+        "Error reading directory {path:?}: {err}", path=&roots)
+    {
+        match entry {
+            Ok(entry) => {
+                let root_dir = entry.path();
+                if !root_dir.is_dir() {
+                    continue;
+                }
+                if root_dir.file_name()
+                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                {
+                    continue;
+                }
+                cont_dirs.push(root_dir);
+            },
+            Err(e) => {
+                return Err(format!("Error iterating directory: {}", e));
+            },
+        }
+    }
+    Ok(cont_dirs)
 }
 
 fn get_container_paths_names_times(root_dirs: &[PathBuf], exclude_path: &Path)

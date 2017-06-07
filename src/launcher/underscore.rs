@@ -1,6 +1,4 @@
-use std::fs::read_dir;
 use std::io::{stdout, stderr};
-use std::path::{Path, PathBuf};
 
 use argparse::{ArgumentParser};
 use argparse::{StoreTrue, List, StoreOption, Store};
@@ -18,6 +16,7 @@ use super::storage_dir;
 use super::wrap::Wrapper;
 use container::util::{version_from_symlink, hardlink_identical_files};
 use container::util::{write_container_signature, check_signature};
+use container::util::{collect_containers_from_storage, collect_containers};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
 
@@ -197,30 +196,7 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
 
     let root_dirs = if global {
         if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
-            warn!("Storage dir is: {:?}", storage_dir);
-            let mut root_dirs = vec!();
-            for entry in try_msg!(read_dir(storage_dir), "Error reading directory: {err}")
-            {
-                match entry {
-                    Ok(entry) => {
-                        let project_dir = entry.path();
-                        if !project_dir.is_dir() {
-                            continue;
-                        }
-                        if project_dir.file_name()
-                            .map_or(false, |n| n.to_string_lossy().starts_with("."))
-                        {
-                            continue;
-                        }
-                        let roots = project_dir.join(".roots");
-                        root_dirs.append(&mut collect_root_dirs(&roots)?);
-                    },
-                    Err(e) => {
-                        return Err(format!("Error iterating directory: {}", e));
-                    },
-                }
-            }
-            root_dirs
+            collect_containers_from_storage(storage_dir)?
         } else {
             return Err(format!(
                 "The --global flag is only meaningful if you configure \
@@ -231,13 +207,13 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
             .map(|x| x.join(".roots"))
             .ok_or_else(|| format!(
                 "storage dir created by preceding container build"))?;
-        collect_root_dirs(&roots)?
+        collect_containers(&roots)?
     };
 
     for root_dir in &root_dirs {
         let index_path = root_dir.join("index.ds1");
         if !index_path.exists() {
-            warn!("Writing index into {:?}", &root_dir);
+            warn!("Indexing container {:?} ...", &root_dir);
             write_container_signature(&root_dir)?;
         }
     }
@@ -252,32 +228,6 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
             Err(format!("Error when linking container files: {}", msg))
         },
     }
-}
-
-fn collect_root_dirs(roots: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut root_dirs = vec!();
-    for entry in try_msg!(read_dir(&roots),
-        "Error reading directory {path:?}: {err}", path=&roots)
-    {
-        match entry {
-            Ok(entry) => {
-                let root_dir = entry.path();
-                if !root_dir.is_dir() {
-                    continue;
-                }
-                if root_dir.file_name()
-                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
-                {
-                    continue;
-                }
-                root_dirs.push(root_dir);
-            },
-            Err(e) => {
-                return Err(format!("Error iterating directory: {}", e));
-            },
-        }
-    }
-    Ok(root_dirs)
 }
 
 pub fn verify_container(ctx: &Context, mut args: Vec<String>)

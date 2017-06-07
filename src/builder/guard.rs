@@ -138,6 +138,7 @@ impl<'a> Guard<'a> {
         if self.ctx.settings.index_all_images {
             self.ctx.timelog.mark(format_args!("Indexing"))
                 .map_err(|e| format!("Can't write timelog: {}", e))?;
+            warn!("Indexing container...");
             write_container_signature(Path::new("/vagga/container"))?;
         }
 
