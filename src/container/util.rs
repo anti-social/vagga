@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs::File;
 use std::fs::{read_dir, remove_file, remove_dir, rename};
 use std::fs::{symlink_metadata, read_link, hard_link};
@@ -334,13 +335,11 @@ pub fn hardlink_container_files(container_name: &str,
         "Error parsing signature file: {err}");
 
     warn!("Cont dirs: {:?}", cont_dirs);
-    let cont_dirs = cont_dirs.into_iter()
-        .filter(|p| p.join("index.ds1").is_file())
-        .collect::<Vec<_>>();
-    cont_dirs.sort_by_key(|p| {
-        let cont_name = p.file_name().map_or();
-        (project_name, cont_name, m.modified())
-    });
+    let mut merged_ds_builder = FileMergeBuilder::new();
+    for cont_path in cont_dirs {
+        merged_ds_builder.add(&cont_path.join("root"),
+                              &cont_path.join("index.ds1"));
+    }
 
     // let _paths_names_times = get_container_paths_names_times(
     //     root_dirs, final_dir)?;
@@ -430,6 +429,7 @@ pub fn hardlink_container_files(container_name: &str,
                             {
                                 continue;
                             }
+                            warn!("Linking: ");
                             if let Err(e) = hard_link(&tgt, &tmp) {
                                 if e.kind() == io::ErrorKind::NotFound {
                                     // Ignore not found error cause container
@@ -519,6 +519,7 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), Str
                     tgt = Some((path.to_path_buf(), meta.ino()));
                     continue;
                 }
+
                 warn!("-> {:?}", &path);
             }
         }
@@ -530,7 +531,7 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), Str
 }
 
 pub fn collect_containers_from_storage(storage_dir: &Path)
-    -> Result<Vec<PathBuf>, String>
+    -> Result<Vec<ContainerDir>, String>
 {
     let mut cont_dirs = vec!();
     for entry in try_msg!(read_dir(storage_dir), "Error reading directory: {err}")
@@ -547,7 +548,7 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
                     continue;
                 }
                 let roots = project_dir.join(".roots");
-                cont_dirs.append(&mut collect_containers(&roots)?);
+                cont_dirs.append(&mut collect_container_dirs(&roots)?);
             },
             Err(e) => {
                 return Err(format!("Error iterating directory: {}", e));
@@ -557,7 +558,9 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
     Ok(cont_dirs)
 }
 
-pub fn collect_containers(roots: &Path) -> Result<Vec<PathBuf>, String> {
+pub fn collect_container_dirs(roots: &Path)
+    -> Result<Vec<ContainerDir>, String>
+{
     let mut cont_dirs = vec!();
     for entry in try_msg!(read_dir(&roots),
         "Error reading directory {path:?}: {err}", path=&roots)
@@ -568,12 +571,44 @@ pub fn collect_containers(roots: &Path) -> Result<Vec<PathBuf>, String> {
                 if !root_dir.is_dir() {
                     continue;
                 }
-                if root_dir.file_name()
-                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                let dir_name = if let Some(dir_name) = root_dir.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.to_string())
                 {
+                    dir_name
+                } else {
+                    continue;
+                };
+                if dir_name.starts_with(".") {
                     continue;
                 }
-                cont_dirs.push(root_dir);
+                let container_name = {
+                    let dir_name_parts = dir_name.rsplitn(2, '.');
+                    dir_name_parts.next();
+                    if let Some(cont_name) = dir_name_parts.next()
+                        .map(|n| n.to_string())
+                    {
+                        cont_name
+                    } else {
+                        continue;
+                    }
+                };
+                if !root_dir.join("index.ds1").is_file() {
+                    continue;
+                }
+                let date_modified = if let Ok(dt) = root_dir.symlink_metadata()
+                    .and_then(|m| m.modified())
+                {
+                    dt
+                } else {
+                    continue;
+                };
+                cont_dirs.push(ContainerDir {
+                    path: root_dir,
+                    name: container_name,
+                    modified: date_modified,
+                    project: None,
+                });
             },
             Err(e) => {
                 return Err(format!("Error iterating directory: {}", e));
@@ -581,6 +616,13 @@ pub fn collect_containers(roots: &Path) -> Result<Vec<PathBuf>, String> {
         }
     }
     Ok(cont_dirs)
+}
+
+pub struct ContainerDir {
+    path: PathBuf,
+    name: String,
+    modified: SystemTime,
+    project: Option<OsString>,
 }
 
 fn get_container_paths_names_times(root_dirs: &[PathBuf], exclude_path: &Path)

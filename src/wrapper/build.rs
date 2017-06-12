@@ -22,7 +22,7 @@ use capsule::download::maybe_download_and_check_hashsum;
 use config::{Config, Container, Settings};
 use container::util::{clean_dir, hardlink_container_files};
 use container::util::write_container_signature;
-use container::util::collect_containers_from_storage;
+use container::util::{collect_container_dirs, collect_containers_from_storage};
 use container::mount::{unmount};
 use file_util::{Dir, Lock, copy, human_size};
 use process_util::{capture_fd3_status, copy_env_vars};
@@ -389,19 +389,43 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
-        if wrapper.ext_settings.storage_dir.is_some() {
+        let hardlink_res = if wrapper.ext_settings.storage_dir.is_some() {
+            warn!("Storage dir: {:?}",
+                  wrapper.ext_settings.storage_dir.as_ref().unwrap());
+            let storage_dir = Path::new("/vagga/storage");
             let project_path = try_msg!(
                 read_link(Path::new("/work/.vagga/.lnk")),
                 "Cannot read .vagga/.lnk symlink: {err}");
-            let project_dir_name = project_path.file_name()
+            let project_name = project_path.file_name()
                 .ok_or(format!("Cannot detect project name"))?;
-            let cont_dirs = collect_containers_from_storage(
-                Path::new("/vagga/storage"))?;
+            let tmp_dir_name = cont_info.tmp_root_dir.file_name()
+                .ok_or(format!("Cannot detect tmp dir name"))?;
+            let tmp_root_dir = storage_dir
+                .join(project_name)
+                .join(".roots")
+                .join(tmp_dir_name);
+            warn!("Project dir: {:?}", project_name);
+            let mut cont_dirs = collect_containers_from_storage(storage_dir)?;
+            // cont_dirs.sort_by_key(|d| {
+            //     (d.project_name == project_name,
+            //      d.container_name == cont_info.name,
+            //      d.container_name,
+            //      d.modified)
+            // });
+            // let cont_dirs = cont_dirs.into_iter()
+            //     .rev()
+            //     .group_by(|d| (d.project_name, d.container_name))
+            //     .into_iter();
             warn!("Containers: {:?}", &cont_dirs);
-        }
-        match hardlink_container_files(
-            cont_info.name, &cont_info.tmp_root_dir, &finalpath, &[roots_dir])
-        {
+            hardlink_container_files(
+                cont_info.name, &tmp_root_dir, &finalpath, &cont_dirs[..])
+        } else {
+            let cont_dirs = collect_container_dirs(&roots_dir)?;
+            warn!("Containers: {:?}", &cont_dirs);
+            hardlink_container_files(
+                cont_info.name, &cont_info.tmp_root_dir, &finalpath, &cont_dirs[..])
+        };
+        match hardlink_res {
             Ok((count, size)) if count > 0 => warn!(
                 "Found and linked {} ({}) identical files \
                  from other containers", count, human_size(size)),

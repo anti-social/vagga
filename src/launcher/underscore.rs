@@ -16,7 +16,7 @@ use super::storage_dir;
 use super::wrap::Wrapper;
 use container::util::{version_from_symlink, hardlink_identical_files};
 use container::util::{write_container_signature, check_signature};
-use container::util::{collect_containers_from_storage, collect_containers};
+use container::util::{collect_containers_from_storage, collect_container_dirs};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
 
@@ -207,7 +207,7 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
             .map(|x| x.join(".roots"))
             .ok_or_else(|| format!(
                 "storage dir created by preceding container build"))?;
-        collect_containers(&roots)?
+        collect_container_dirs(&roots)?
     };
 
     for root_dir in &root_dirs {
