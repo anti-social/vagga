@@ -319,7 +319,7 @@ pub fn check_signature(cont_dir: &Path)
 
 #[cfg(feature="containers")]
 pub fn hardlink_container_files(container_name: &str,
-    tmp_dir: &Path, final_dir: &Path, root_dirs: &[PathBuf])
+    tmp_dir: &Path, final_dir: &Path, cont_dirs: &[PathBuf])
     -> Result<(u32, u64), String>
 {
     let container_root = tmp_dir.join("root");
@@ -333,31 +333,38 @@ pub fn hardlink_container_files(container_name: &str,
     let mut main_ds_parser = try_msg!(Parser::new(main_ds_reader),
         "Error parsing signature file: {err}");
 
-    warn!("Root dirs: {:?}", root_dirs);
-
-    let _paths_names_times = get_container_paths_names_times(
-        root_dirs, final_dir)?;
-    warn!("{:?}", _paths_names_times);
-    let mut paths_names_times = _paths_names_times.iter()
-        .map(|&(ref p, ref n, ref t)| (p, n, t))
+    warn!("Cont dirs: {:?}", cont_dirs);
+    let cont_dirs = cont_dirs.into_iter()
+        .filter(|p| p.join("index.ds1").is_file())
         .collect::<Vec<_>>();
-    // Sort by current container name equality
-    // then by container name and then by modification date
-    paths_names_times.sort_by_key(|&(_, n, t)| {
-        (n == container_name, n, t)
+    cont_dirs.sort_by_key(|p| {
+        let cont_name = p.file_name().map_or();
+        (project_name, cont_name, m.modified())
     });
-    let mut merged_ds_builder = FileMergeBuilder::new();
-    for (_, cont_group) in paths_names_times
-        .into_iter()
-        .rev()
-        .group_by(|&(_, n, _)| n)
-        .into_iter()
-    {
-        for (cont_path, _, _) in cont_group.take(5) {
-            merged_ds_builder.add(&cont_path.join("root"),
-                                  &cont_path.join("index.ds1"));
-        }
-    }
+
+    // let _paths_names_times = get_container_paths_names_times(
+    //     root_dirs, final_dir)?;
+    // warn!("{:?}", _paths_names_times);
+    // let mut paths_names_times = _paths_names_times.iter()
+    //     .map(|&(ref p, ref n, ref t)| (p, n, t))
+    //     .collect::<Vec<_>>();
+    // // Sort by current container name equality
+    // // then by container name and then by modification date
+    // paths_names_times.sort_by_key(|&(_, n, t)| {
+    //     (n == container_name, n, t)
+    // });
+    // let mut merged_ds_builder = FileMergeBuilder::new();
+    // for (_, cont_group) in paths_names_times
+    //     .into_iter()
+    //     .rev()
+    //     .group_by(|&(_, n, _)| n)
+    //     .into_iter()
+    // {
+    //     for (cont_path, _, _) in cont_group.take(5) {
+    //         merged_ds_builder.add(&cont_path.join("root"),
+    //                               &cont_path.join("index.ds1"));
+    //     }
+    // }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
         "Error parsing signature files: {err}");
     let mut merged_ds_iter = merged_ds.iter();

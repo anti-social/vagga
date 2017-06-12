@@ -390,6 +390,11 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
         wrapper.settings.hard_link_identical_files
     {
         if wrapper.ext_settings.storage_dir.is_some() {
+            let project_path = try_msg!(
+                read_link(Path::new("/work/.vagga/.lnk")),
+                "Cannot read .vagga/.lnk symlink: {err}");
+            let project_dir_name = project_path.file_name()
+                .ok_or(format!("Cannot detect project name"))?;
             let cont_dirs = collect_containers_from_storage(
                 Path::new("/vagga/storage"))?;
             warn!("Containers: {:?}", &cont_dirs);
