@@ -319,9 +319,10 @@ pub fn check_signature(cont_dir: &Path)
 }
 
 #[cfg(feature="containers")]
-pub fn hardlink_container_files(container_name: &str,
-    tmp_dir: &Path, final_dir: &Path, cont_dirs: &[PathBuf])
+pub fn hardlink_container_files<I, P>(container_name: &str,
+    tmp_dir: &Path, final_dir: &Path, cont_dirs: I)
     -> Result<(u32, u64), String>
+    where I: IntoIterator<Item = P>, P: AsRef<Path>
 {
     let container_root = tmp_dir.join("root");
     let main_ds_path = tmp_dir.join("index.ds1");
@@ -334,36 +335,11 @@ pub fn hardlink_container_files(container_name: &str,
     let mut main_ds_parser = try_msg!(Parser::new(main_ds_reader),
         "Error parsing signature file: {err}");
 
-    warn!("Cont dirs: {:?}", cont_dirs);
     let mut merged_ds_builder = FileMergeBuilder::new();
     for cont_path in cont_dirs {
-        merged_ds_builder.add(&cont_path.join("root"),
-                              &cont_path.join("index.ds1"));
+        merged_ds_builder.add(&cont_path.as_ref().join("root"),
+                              &cont_path.as_ref().join("index.ds1"));
     }
-
-    // let _paths_names_times = get_container_paths_names_times(
-    //     root_dirs, final_dir)?;
-    // warn!("{:?}", _paths_names_times);
-    // let mut paths_names_times = _paths_names_times.iter()
-    //     .map(|&(ref p, ref n, ref t)| (p, n, t))
-    //     .collect::<Vec<_>>();
-    // // Sort by current container name equality
-    // // then by container name and then by modification date
-    // paths_names_times.sort_by_key(|&(_, n, t)| {
-    //     (n == container_name, n, t)
-    // });
-    // let mut merged_ds_builder = FileMergeBuilder::new();
-    // for (_, cont_group) in paths_names_times
-    //     .into_iter()
-    //     .rev()
-    //     .group_by(|&(_, n, _)| n)
-    //     .into_iter()
-    // {
-    //     for (cont_path, _, _) in cont_group.take(5) {
-    //         merged_ds_builder.add(&cont_path.join("root"),
-    //                               &cont_path.join("index.ds1"));
-    //     }
-    // }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
         "Error parsing signature files: {err}");
     let mut merged_ds_iter = merged_ds.iter();
@@ -542,13 +518,20 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
                 if !project_dir.is_dir() {
                     continue;
                 }
-                if project_dir.file_name()
-                    .map_or(false, |n| n.to_string_lossy().starts_with("."))
+                let project_name = if let Some(project_name) = project_dir.file_name()
+                    .and_then(|n| n.to_str())
+                    // .map(|n| n.to_string())
                 {
+                    project_name
+                } else {
+                    continue;
+                };
+                if project_name.starts_with('.') {
                     continue;
                 }
                 let roots = project_dir.join(".roots");
-                cont_dirs.append(&mut collect_container_dirs(&roots)?);
+                cont_dirs.append(
+                    &mut collect_container_dirs(&roots, Some(project_name))?);
             },
             Err(e) => {
                 return Err(format!("Error iterating directory: {}", e));
@@ -558,7 +541,7 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
     Ok(cont_dirs)
 }
 
-pub fn collect_container_dirs(roots: &Path)
+pub fn collect_container_dirs(roots: &Path, project_name: Option<&str>)
     -> Result<Vec<ContainerDir>, String>
 {
     let mut cont_dirs = vec!();
@@ -583,7 +566,7 @@ pub fn collect_container_dirs(roots: &Path)
                     continue;
                 }
                 let container_name = {
-                    let dir_name_parts = dir_name.rsplitn(2, '.');
+                    let mut dir_name_parts = dir_name.rsplitn(2, '.');
                     dir_name_parts.next();
                     if let Some(cont_name) = dir_name_parts.next()
                         .map(|n| n.to_string())
@@ -593,9 +576,6 @@ pub fn collect_container_dirs(roots: &Path)
                         continue;
                     }
                 };
-                if !root_dir.join("index.ds1").is_file() {
-                    continue;
-                }
                 let date_modified = if let Ok(dt) = root_dir.symlink_metadata()
                     .and_then(|m| m.modified())
                 {
@@ -607,7 +587,7 @@ pub fn collect_container_dirs(roots: &Path)
                     path: root_dir,
                     name: container_name,
                     modified: date_modified,
-                    project: None,
+                    project: project_name.map(|n| n.to_string()),
                 });
             },
             Err(e) => {
@@ -618,11 +598,12 @@ pub fn collect_container_dirs(roots: &Path)
     Ok(cont_dirs)
 }
 
+#[derive(Debug)]
 pub struct ContainerDir {
-    path: PathBuf,
-    name: String,
-    modified: SystemTime,
-    project: Option<OsString>,
+    pub path: PathBuf,
+    pub name: String,
+    pub modified: SystemTime,
+    pub project: Option<String>,
 }
 
 fn get_container_paths_names_times(root_dirs: &[PathBuf], exclude_path: &Path)

@@ -389,7 +389,9 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
-        let hardlink_res = if wrapper.ext_settings.storage_dir.is_some() {
+        let (tmp_root_dir, project_name, _cont_dirs) =
+            if wrapper.ext_settings.storage_dir.is_some()
+        {
             warn!("Storage dir: {:?}",
                   wrapper.ext_settings.storage_dir.as_ref().unwrap());
             let storage_dir = Path::new("/vagga/storage");
@@ -397,35 +399,46 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
                 read_link(Path::new("/work/.vagga/.lnk")),
                 "Cannot read .vagga/.lnk symlink: {err}");
             let project_name = project_path.file_name()
-                .ok_or(format!("Cannot detect project name"))?;
+                .ok_or(format!("Cannot detect project name"))?
+                .to_str()
+                .ok_or(format!("Cannot convert project name to string"))?
+                .to_string();
             let tmp_dir_name = cont_info.tmp_root_dir.file_name()
                 .ok_or(format!("Cannot detect tmp dir name"))?;
             let tmp_root_dir = storage_dir
-                .join(project_name)
+                .join(&project_name)
                 .join(".roots")
                 .join(tmp_dir_name);
-            warn!("Project dir: {:?}", project_name);
-            let mut cont_dirs = collect_containers_from_storage(storage_dir)?;
-            // cont_dirs.sort_by_key(|d| {
-            //     (d.project_name == project_name,
-            //      d.container_name == cont_info.name,
-            //      d.container_name,
-            //      d.modified)
-            // });
-            // let cont_dirs = cont_dirs.into_iter()
-            //     .rev()
-            //     .group_by(|d| (d.project_name, d.container_name))
-            //     .into_iter();
-            warn!("Containers: {:?}", &cont_dirs);
-            hardlink_container_files(
-                cont_info.name, &tmp_root_dir, &finalpath, &cont_dirs[..])
+            warn!("Project dir: {:?}", &project_name);
+            let cont_dirs = collect_containers_from_storage(storage_dir)?;
+            (tmp_root_dir, Some(project_name), cont_dirs)
         } else {
-            let cont_dirs = collect_container_dirs(&roots_dir)?;
-            warn!("Containers: {:?}", &cont_dirs);
-            hardlink_container_files(
-                cont_info.name, &cont_info.tmp_root_dir, &finalpath, &cont_dirs[..])
+            let cont_dirs = collect_container_dirs(&roots_dir, None)?;
+            (cont_info.tmp_root_dir.clone(), None, cont_dirs)
         };
-        match hardlink_res {
+        use itertools::Itertools;
+        let mut cont_dirs = _cont_dirs.iter()
+            .filter(|d| d.path.join("index.ds1").is_file())
+            .map(|d| d)
+            .collect::<Vec<_>>();
+        cont_dirs.sort_by_key(|d| {
+            (d.project == project_name,
+             &d.project,
+             d.name == cont_info.name,
+             &d.name,
+             d.modified)
+        });
+        let grouped_cont_dirs = cont_dirs.into_iter()
+            .rev()
+            .group_by(|d| (&d.project, &d.name));
+        let cont_dirs = grouped_cont_dirs.into_iter()
+            .map(|(_, group)| group.take(3))
+            .flatten();
+        let cont_paths = cont_dirs.into_iter()
+            .map(|d| &d.path);
+        match hardlink_container_files(
+            cont_info.name, &tmp_root_dir, &finalpath, cont_paths)
+        {
             Ok((count, size)) if count > 0 => warn!(
                 "Found and linked {} ({}) identical files \
                  from other containers", count, human_size(size)),

@@ -194,29 +194,30 @@ pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
         return Ok(2);
     }
 
-    let root_dirs = if global {
-        if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
-            collect_containers_from_storage(storage_dir)?
-        } else {
-            return Err(format!(
-                "The --global flag is only meaningful if you configure \
-                 storage-dir in settings"));
-        }
-    } else {
-        let roots = storage_dir::get_base(ctx)
-            .map(|x| x.join(".roots"))
-            .ok_or_else(|| format!(
-                "storage dir created by preceding container build"))?;
-        collect_container_dirs(&roots)?
-    };
+    let root_dirs = vec!();
+    // let root_dirs = if global {
+    //     if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
+    //         collect_containers_from_storage(storage_dir)?
+    //     } else {
+    //         return Err(format!(
+    //             "The --global flag is only meaningful if you configure \
+    //              storage-dir in settings"));
+    //     }
+    // } else {
+    //     let roots = storage_dir::get_base(ctx)
+    //         .map(|x| x.join(".roots"))
+    //         .ok_or_else(|| format!(
+    //             "storage dir created by preceding container build"))?;
+    //     collect_container_dirs(&roots)?
+    // };
 
-    for root_dir in &root_dirs {
-        let index_path = root_dir.join("index.ds1");
-        if !index_path.exists() {
-            warn!("Indexing container {:?} ...", &root_dir);
-            write_container_signature(&root_dir)?;
-        }
-    }
+    // for root_dir in &root_dirs {
+    //     let index_path = root_dir.join("index.ds1");
+    //     if !index_path.exists() {
+    //         warn!("Indexing container {:?} ...", &root_dir);
+    //         write_container_signature(&root_dir)?;
+    //     }
+    // }
 
     match hardlink_identical_files(&root_dirs[..]) {
         Ok((count, size)) => {
