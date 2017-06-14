@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fs::File;
 use std::fs::{read_dir, remove_file, remove_dir, rename};
 use std::fs::{symlink_metadata, read_link, hard_link};
@@ -11,7 +10,6 @@ use dir_signature::{self, v1, ScannerConfig as Sig};
 use dir_signature::HashType::Blake2b_256 as Blake;
 use dir_signature::v1::{Entry, EntryKind, Parser, ParseError};
 use dir_signature::v1::merge::FileMergeBuilder;
-use itertools::Itertools;
 use libc::{uid_t, gid_t};
 use tempfile::tempfile;
 
@@ -319,8 +317,7 @@ pub fn check_signature(cont_dir: &Path)
 }
 
 #[cfg(feature="containers")]
-pub fn hardlink_container_files<I, P>(container_name: &str,
-    tmp_dir: &Path, final_dir: &Path, cont_dirs: I)
+pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
     -> Result<(u32, u64), String>
     where I: IntoIterator<Item = P>, P: AsRef<Path>
 {
@@ -438,23 +435,28 @@ pub fn hardlink_container_files<I, P>(container_name: &str,
 }
 
 #[cfg(not(feature="containers"))]
-pub fn hardlink_container_files(container_name: &str,
-    tmp_dir: &Path, final_dir: &Path, root_dirs: &[PathBuf])
+pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
     -> Result<(u32, u64), String>
+    where I: IntoIterator<Item = P>, P: AsRef<Path>
 {
     unimplemented!();
 }
 
-pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), String> {
+pub fn hardlink_identical_files<I, P>(cont_dirs: I)
+    -> Result<(u64, u64), String>
+    where I: IntoIterator<Item = P>, P: AsRef<Path>
+{
     use std::collections::HashMap;
     use std::os::unix::fs::MetadataExt;
     // use itertools::Itertools;
     use dir_signature::v1::Entry;
 
     let mut merged_ds_builder = FileMergeBuilder::new();
-    for cont_dir in root_dirs {
-        merged_ds_builder.add(cont_dir,
-                              &cont_dir.join("index.ds1"));
+    let mut ds_count = 0;
+    for cont_dir in cont_dirs {
+        merged_ds_builder.add(cont_dir.as_ref(),
+                              &cont_dir.as_ref().join("index.ds1"));
+        ds_count += 1;
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
                                  "Error parsing signature files: {err}");
@@ -462,7 +464,7 @@ pub fn hardlink_identical_files(root_dirs: &[PathBuf]) -> Result<(u64, u64), Str
 
     let mut count = 0;
     let mut size = 0;
-    let mut grouped_entries = HashMap::with_capacity(root_dirs.len());
+    let mut grouped_entries = HashMap::with_capacity(ds_count);
     'outer:
     for cont_dirs_and_entries in merged_ds_iter {
         for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
@@ -518,9 +520,9 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
                 if !project_dir.is_dir() {
                     continue;
                 }
-                let project_name = if let Some(project_name) = project_dir.file_name()
+                let project_name =
+                    if let Some(project_name) = project_dir.file_name()
                     .and_then(|n| n.to_str())
-                    // .map(|n| n.to_string())
                 {
                     project_name
                 } else {
@@ -604,45 +606,6 @@ pub struct ContainerDir {
     pub name: String,
     pub modified: SystemTime,
     pub project: Option<String>,
-}
-
-fn get_container_paths_names_times(root_dirs: &[PathBuf], exclude_path: &Path)
-    -> Result<Vec<(PathBuf, String, SystemTime)>, String>
-{
-    let mut cont_dirs = vec!();
-    for dir in root_dirs {
-        for entry in try_msg!(read_dir(dir), "Error reading directory: {err}") {
-            if let Ok(entry) = entry {
-                cont_dirs.push(entry.path());
-            }
-        }
-    }
-
-    Ok(cont_dirs.into_iter()
-        .filter(|p| {
-            p != exclude_path &&
-                p.is_dir() &&
-                p.join("index.ds1").is_file()
-        })
-        .filter_map(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.to_string())
-                .map(|n| (p, n))
-        })
-        .filter(|&(_, ref d)| !d.starts_with("."))
-        .filter_map(|(p, d)| {
-            let mut dir_name_parts = d.rsplitn(2, '.');
-            dir_name_parts.next();
-            dir_name_parts.next()
-                .map(|n| (p, n.to_string()))
-        })
-        .filter_map(|(p, n)| {
-            p.metadata()
-                .and_then(|m| m.modified()).ok()
-                .map(|t| (p, n, t))
-        })
-        .collect::<Vec<_>>())
 }
 
 quick_error!{
