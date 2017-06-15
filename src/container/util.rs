@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::fs::{read_dir, remove_file, remove_dir, rename};
 use std::fs::{symlink_metadata, read_link, hard_link};
@@ -12,6 +13,7 @@ use dir_signature::v1::{Entry, EntryKind, Parser, ParseError};
 use dir_signature::v1::merge::FileMergeBuilder;
 use libc::{uid_t, gid_t};
 use tempfile::tempfile;
+
 
 
 use super::root::temporary_change_root;
@@ -446,11 +448,6 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     -> Result<(u64, u64), String>
     where I: IntoIterator<Item = P>, P: AsRef<Path>
 {
-    use std::collections::HashMap;
-    use std::os::unix::fs::MetadataExt;
-    // use itertools::Itertools;
-    use dir_signature::v1::Entry;
-
     let mut merged_ds_builder = FileMergeBuilder::new();
     let mut ds_count = 0;
     for cont_dir in cont_dirs {

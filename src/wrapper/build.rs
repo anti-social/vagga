@@ -15,6 +15,7 @@ use argparse::{ArgumentParser, Store, StoreTrue};
 use rustc_serialize::json;
 use unshare::{Command, Namespace, ExitStatus};
 use libmount::BindMount;
+use itertools::Itertools;
 
 use builder::context::Context;
 use builder::commands::tarcmd::unpack_file;
@@ -389,8 +390,8 @@ fn _build_container(cont_info: &ContainerInfo, wrapper: &Wrapper)
     if wrapper.settings.index_all_images &&
         wrapper.settings.hard_link_identical_files
     {
-        find_and_hardlink_identical_files(cont_info,
-            &wrapper.ext_settings.storage_dir, &roots_dir, &finalpath)?;
+        find_and_hardlink_identical_files(
+            &wrapper, cont_info, &roots_dir, &finalpath)?;
     }
 
     debug!("Committing {:?} -> {:?}", cont_info.tmp_root_dir, &finalpath);
@@ -562,13 +563,14 @@ pub fn print_version_hash_cmd(wrapper: &Wrapper, cmdline: Vec<String>)
     }
 }
 
-fn find_and_hardlink_identical_files(cont_info: &ContainerInfo,
-    storage_dir: &Option<PathBuf>, roots_dir: &Path, finalpath: &Path)
+fn find_and_hardlink_identical_files(wrapper: &Wrapper,
+    cont_info: &ContainerInfo, roots_dir: &Path, finalpath: &Path)
     -> Result<(), String>
 {
-    let (tmp_root_dir, project_name, _cont_dirs) = if storage_dir.is_some()
+    let (tmp_root_dir, project_name, _cont_dirs) =
+        if wrapper.settings.hard_link_between_projects &&
+        wrapper.ext_settings.storage_dir.is_some()
     {
-        warn!("Storage dir: {:?}", storage_dir.as_ref().unwrap());
         let storage_dir = Path::new("/vagga/storage");
         let project_path = try_msg!(
             read_link(Path::new("/work/.vagga/.lnk")),
@@ -591,7 +593,6 @@ fn find_and_hardlink_identical_files(cont_info: &ContainerInfo,
         let cont_dirs = collect_container_dirs(&roots_dir, None)?;
         (cont_info.tmp_root_dir.clone(), None, cont_dirs)
     };
-    use itertools::Itertools;
     let mut cont_dirs = _cont_dirs.iter()
         .filter(|d| d.path != finalpath)
         .filter(|d| d.path.join("index.ds1").is_file())

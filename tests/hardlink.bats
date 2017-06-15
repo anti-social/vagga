@@ -31,6 +31,7 @@ setup() {
         storage-dir: /work/tests/hardlink/.storage
         index-all-images: true
         hard-link-identical-files: true
+        hard-link-between-projects: true
     "
 
     cd /work/tests/hardlink/project-1
