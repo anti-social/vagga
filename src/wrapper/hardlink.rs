@@ -6,7 +6,7 @@ use file_util::human_size;
 
 use super::Wrapper;
 use super::setup;
-use container::util::{version_from_symlink, hardlink_identical_files};
+use container::util::{version_from_symlink, hardlink_all_identical_files};
 use container::util::{write_container_signature, check_signature};
 use container::util::{collect_containers_from_storage, collect_container_dirs};
 
@@ -83,12 +83,6 @@ pub fn hardlink_cmd(wrapper: &Wrapper, args: Vec<String>)
         }
     }
 
-    if global && wrapper.ext_settings.storage_dir.is_none() {
-        error!("The --global flag is only meaningful if you configure \
-                storage-dir in settings");
-        return Ok(2);
-    }
-
     let cont_dirs = if global {
         if let Some(ref storage_dir) = wrapper.ext_settings.storage_dir {
             collect_containers_from_storage(storage_dir)?
@@ -113,7 +107,7 @@ pub fn hardlink_cmd(wrapper: &Wrapper, args: Vec<String>)
         }
     }
 
-    match hardlink_identical_files(cont_dirs.iter().map(|d| &d.path)) {
+    match hardlink_all_identical_files(cont_dirs.iter().map(|d| &d.path)) {
         Ok((count, size)) => {
             warn!("Found and linked {} ({}) identical files",
                   count, human_size(size));

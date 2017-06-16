@@ -363,17 +363,16 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                 hashes: ref lnk_hashes,
             }) => {
                 let lnk = container_root.join(
-                    match lnk_path.strip_prefix("/") {
-                        Ok(lnk_path) => lnk_path,
-                        Err(_) => continue,
-                    });
-                let lnk_stat = lnk.symlink_metadata().map_err(|e|
-                    format!("Error querying file stats: {}", e))?;
+                    lnk_path.strip_prefix("/").map_err(|_| format!(
+                        "Invalid signature entry {:?}: {:?}",
+                        main_ds_path, lnk_path))?);
+                let lnk_stat = try_msg!(lnk.symlink_metadata(),
+                    "Error querying file stats {path:?}: {err}", path=&lnk);
                 for tgt_entry in merged_ds_iter
                     .advance(&EntryKind::File(lnk_path))
                 {
                     match tgt_entry {
-                        (tgt_base_path,
+                        (tgt_root_path,
                          Ok(Entry::File{
                              path: ref tgt_path,
                              exe: tgt_exe,
@@ -383,11 +382,10 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                             lnk_size == tgt_size &&
                             lnk_hashes == tgt_hashes =>
                         {
-                            let tgt = tgt_base_path.join(
-                                match tgt_path.strip_prefix("/") {
-                                    Ok(path) => path,
-                                    Err(_) => continue,
-                                });
+                            let tgt = tgt_root_path.join(
+                                tgt_path.strip_prefix("/").map_err(|_| format!(
+                                    "Invalid signature entry {:?}: {:?}",
+                                    tgt_root_path, tgt_path))?);
                             let tgt_stat = match tgt.symlink_metadata() {
                                 Ok(s) => s,
                                 Err(ref e)
@@ -399,7 +397,8 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                                 },
                                 Err(e) => {
                                     return Err(format!(
-                                        "Error querying file stats: {}", e));
+                                        "Error querying file stats {:?}: {}",
+                                        &tgt, e));
                                 },
                             };
                             if lnk_stat.mode() != tgt_stat.mode() ||
@@ -408,21 +407,20 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                             {
                                 continue;
                             }
-                            if let Err(e) = hard_link(&tgt, &tmp) {
-                                if e.kind() == io::ErrorKind::NotFound {
+                            match safe_hardlink(&tgt, &lnk, &tmp) {
+                                Ok(_) => {},
+                                Err(HardlinkError::Create(ref e))
+                                    if e.kind() == io::ErrorKind::NotFound =>
+                                {
                                     // Ignore not found error cause container
                                     // could be deleted
                                     continue;
-                                }
-                                return Err(format!(
-                                    "Error creating hard link: {}", e));
-                            }
-                            if let Err(e) = rename(&tmp, &lnk) {
-                                remove_file(&tmp).map_err(|e|
-                                    format!("Error removing file after failed \
-                                             renaming: {}", e))?;
-                                return Err(format!(
-                                    "Error renaming hard link: {}", e));
+                                },
+                                Err(e) => {
+                                    return Err(format!(
+                                        "Error hard linking {:?} -> {:?}: {}",
+                                        &tgt, &lnk, e));
+                                },
                             }
                             count += 1;
                             size += tgt_size;
@@ -448,7 +446,7 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
 }
 
 #[cfg(feature="containers")]
-pub fn hardlink_identical_files<I, P>(cont_dirs: I)
+pub fn hardlink_all_identical_files<I, P>(cont_dirs: I)
     -> Result<(u64, u64), String>
     where I: IntoIterator<Item = P>, P: AsRef<Path>
 {
@@ -456,12 +454,12 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     let mut ds_count = 0;
     for cont_dir in cont_dirs {
         let cont_dir = cont_dir.as_ref();
-        info!("Found container: {:?}", cont_dir);
+        info!("Found container for hardlinking: {:?}", cont_dir);
         merged_ds_builder.add(cont_dir, &cont_dir.join("index.ds1"));
         ds_count += 1;
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
-                                 "Error parsing signature files: {err}");
+        "Error parsing signature files: {err}");
     let merged_ds_iter = merged_ds.iter();
 
     let mut count = 0;
@@ -471,21 +469,25 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     for cont_dirs_and_entries in merged_ds_iter {
         for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
             let entry = try_msg!(entry, "Error reading signature file: {err}");
-            let path = cont_dir.join("root").join(entry.path()
-                                                  .strip_prefix("/").unwrap());
-            let meta = match path.symlink_metadata() {
-                Ok(meta) => meta,
-                // Err(ref e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                //     continue;
-                // },
-                Err(e) => {
-                    return Err(format!(
-                        "Error querying metadata for file {:?}: {}", &path, e));
-                },
-            };
             match entry {
                 Entry::File{..} => {
-                    grouped_entries.entry((entry, meta.mode(), meta.uid(), meta.gid()))
+                    let path = cont_dir.join("root").join(
+                        entry.path().strip_prefix("/").map_err(|_| format!(
+                            "Invalid signature entry {:?}: {:?}",
+                            cont_dir, entry.path()))?);
+                    let meta = match path.symlink_metadata() {
+                        Ok(meta) => meta,
+                        Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
+                            continue;
+                        },
+                        Err(e) => {
+                            return Err(format!(
+                                "Error querying file stats {:?}: {}",
+                                &path, e));
+                        },
+                    };
+                    grouped_entries.entry(
+                            (entry, meta.mode(), meta.uid(), meta.gid()))
                         .or_insert(vec!()).push((cont_dir, path, meta));
                 },
                 Entry::Dir(..) | Entry::Link(..) => continue 'outer,
@@ -498,8 +500,22 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
                 let tmp_path = cont_dir.join(".lnk.tmp");
                 if let Some((ref tgt_path, tgt_ino)) = tgt {
                     if meta.ino() != tgt_ino {
-                        safe_hardlink(tgt_path, path, &tmp_path)
-                            .map_err(|e| format!("Error hard linking: {}", e))?;
+                        match safe_hardlink(tgt_path, path, &tmp_path) {
+                            Ok(_) => {},
+                            Err(HardlinkError::Create(ref e)) |
+                            Err(HardlinkError::Rename(ref e))
+                                if e.kind() == io::ErrorKind::NotFound =>
+                            {
+                                // Ignore not found error cause container
+                                // could be deleted
+                                continue;
+                            },
+                            Err(e) => {
+                                return Err(format!(
+                                    "Error hard linking {:?} -> {:?}: {}",
+                                    &tgt_path, path, e));
+                            },
+                        }
                         count += 1;
                         size += meta.size();
                     }
@@ -528,7 +544,8 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
     -> Result<Vec<ContainerDir>, String>
 {
     let mut cont_dirs = vec!();
-    for entry in try_msg!(read_dir(storage_dir), "Error reading directory: {err}")
+    for entry in try_msg!(read_dir(storage_dir),
+        "Error reading storage directory: {err}")
     {
         match entry {
             Ok(entry) => {
@@ -548,6 +565,9 @@ pub fn collect_containers_from_storage(storage_dir: &Path)
                     continue;
                 }
                 let roots = project_dir.join(".roots");
+                if !roots.is_dir() {
+                    continue;
+                }
                 cont_dirs.append(
                     &mut collect_container_dirs(&roots, Some(project_name))?);
             },
