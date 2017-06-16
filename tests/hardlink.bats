@@ -54,16 +54,18 @@ setup() {
 }
 
 @test "hardlink cmd" {
+    rm -rf .vagga
     run vagga _build --force hello
     printf "%s\n" "${lines[@]}"
     [[ $status = 0 ]]
     link=$(readlink .vagga/hello)
     [[ $link = ".roots/hello.0ae0aab6/root" ]]
 
+    export RUST_LOG=info
     run vagga _hardlink
     printf "%s\n" "${lines[@]}"
     [[ $status = 0 ]]
-    # [[ $output = *"Found and linked 0"* ]]
+    [[ $output = *"Found and linked 0"* ]]
 
     run vagga _build --force hello-and-bye
     printf "%s\n" "${lines[@]}"

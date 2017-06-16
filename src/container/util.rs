@@ -238,7 +238,9 @@ quick_error!{
 pub fn check_signature(cont_dir: &Path)
     -> Result<Option<Diff>, CheckSignatureError>
 {
-    let mut ds_file = File::open(cont_dir.join("index.ds1"))?;
+    let ds_path = cont_dir.join("index.ds1");
+    warn!("Opening signature file: {:?}", &ds_path);
+    let mut ds_file = File::open(&ds_path)?;
     let ds_hash = dir_signature::get_hash(&mut ds_file)?;
 
     let mut scanner_config = Sig::new();
@@ -336,8 +338,10 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
 
     let mut merged_ds_builder = FileMergeBuilder::new();
     for cont_path in cont_dirs {
-        merged_ds_builder.add(&cont_path.as_ref().join("root"),
-                              &cont_path.as_ref().join("index.ds1"));
+        let cont_path = cont_path.as_ref();
+        info!("Found container to hardlink with: {:?}", cont_path);
+        merged_ds_builder.add(&cont_path.join("root"),
+                              &cont_path.join("index.ds1"));
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
         "Error parsing signature files: {err}");
@@ -404,7 +408,6 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                             {
                                 continue;
                             }
-                            warn!("Linking: ");
                             if let Err(e) = hard_link(&tgt, &tmp) {
                                 if e.kind() == io::ErrorKind::NotFound {
                                     // Ignore not found error cause container
@@ -444,6 +447,7 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
     unimplemented!();
 }
 
+#[cfg(feature="containers")]
 pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     -> Result<(u64, u64), String>
     where I: IntoIterator<Item = P>, P: AsRef<Path>
@@ -451,8 +455,9 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     let mut merged_ds_builder = FileMergeBuilder::new();
     let mut ds_count = 0;
     for cont_dir in cont_dirs {
-        merged_ds_builder.add(cont_dir.as_ref(),
-                              &cont_dir.as_ref().join("index.ds1"));
+        let cont_dir = cont_dir.as_ref();
+        info!("Found container: {:?}", cont_dir);
+        merged_ds_builder.add(cont_dir, &cont_dir.join("index.ds1"));
         ds_count += 1;
     }
     let mut merged_ds = try_msg!(merged_ds_builder.finalize(),
@@ -465,10 +470,19 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     'outer:
     for cont_dirs_and_entries in merged_ds_iter {
         for (cont_dir, entry) in cont_dirs_and_entries.into_iter() {
-            let entry = entry.unwrap();
+            let entry = try_msg!(entry, "Error reading signature file: {err}");
             let path = cont_dir.join("root").join(entry.path()
                                                   .strip_prefix("/").unwrap());
-            let meta = path.symlink_metadata().unwrap();
+            let meta = match path.symlink_metadata() {
+                Ok(meta) => meta,
+                Err(ref e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                    continue;
+                },
+                Err(e) => {
+                    return Err(format!(
+                        "Error querying metadata for file {:?}: {}", &path, e));
+                },
+            };
             match entry {
                 Entry::File{..} => {
                     grouped_entries.entry((entry, meta.mode(), meta.uid(), meta.gid()))
@@ -486,7 +500,6 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
                     if meta.ino() != tgt_ino {
                         safe_hardlink(tgt_path, path, &tmp_path)
                             .map_err(|e| format!("Error hard linking: {}", e))?;
-                        warn!("Linked: {:?} -> {:?}", tgt_path, &path);
                         count += 1;
                         size += meta.size();
                     }
@@ -494,8 +507,6 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
                     tgt = Some((path.to_path_buf(), meta.ino()));
                     continue;
                 }
-
-                warn!("-> {:?}", &path);
             }
         }
 
@@ -503,6 +514,14 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
     }
 
     Ok((count, size))
+}
+
+#[cfg(not(feature="containers"))]
+pub fn hardlink_identical_files<I, P>(cont_dirs: I)
+    -> Result<(u64, u64), String>
+    where I: IntoIterator<Item = P>, P: AsRef<Path>
+{
+    unimplemented!();
 }
 
 pub fn collect_containers_from_storage(storage_dir: &Path)

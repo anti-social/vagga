@@ -251,9 +251,12 @@ pub fn verify_container(ctx: &Context, mut args: Vec<String>)
     let vagga_dir = ctx.config_dir.join(".vagga");
     let ver = version_from_symlink(vagga_dir.join(&container))?;
 
-    let roots_dir = vagga_dir.join(".roots");
+    let roots_dir = storage_dir::get_base(ctx)
+        .map(|d| d.join(".roots"))
+        .ok_or_else(|| format!("Base directory is unavailable"))?;
     let cont_dir = roots_dir.join(&ver);
 
+    info!("Checking container: {:?}", &cont_dir);
     match check_signature(&cont_dir) {
         Ok(None) => Ok(0),
         Ok(Some(ref diff)) => {

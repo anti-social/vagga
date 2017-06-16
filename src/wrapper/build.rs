@@ -586,7 +586,6 @@ fn find_and_hardlink_identical_files(wrapper: &Wrapper,
             .join(&project_name)
             .join(".roots")
             .join(tmp_dir_name);
-        warn!("Project dir: {:?}", &project_name);
         let cont_dirs = collect_containers_from_storage(storage_dir)?;
         (tmp_root_dir, Some(project_name), cont_dirs)
     } else {
