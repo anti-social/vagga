@@ -8,15 +8,10 @@ use options::build_mode::build_mode;
 use options::version_hash;
 use container::nsutil::{set_namespace};
 use process_util::{run_and_wait, convert_status};
-use file_util::human_size;
 
 use super::network;
 use super::build::{build_container};
-use super::storage_dir;
 use super::wrap::Wrapper;
-use container::util::{version_from_symlink, hardlink_identical_files};
-use container::util::{write_container_signature, check_signature};
-use container::util::{collect_containers_from_storage, collect_container_dirs};
 use launcher::Context;
 use launcher::volumes::prepare_volumes;
 
@@ -167,122 +162,6 @@ pub fn version_hash(ctx: &Context, cname: &str, mut args: Vec<String>)
     .map(convert_status)
     .map_err(|e| format!("Error running `vagga_wrapper {}`: {}",
                          cname, e))
-}
-
-pub fn hardlink_containers(ctx: &Context, mut args: Vec<String>)
-    -> Result<i32, String>
-{
-    let mut global = false;
-    args.insert(0, "vagga _hardlink".to_string());
-    {
-        let mut ap = ArgumentParser::new();
-        ap.set_description("Indexes and hardlinks containers");
-        ap.refer(&mut global)
-            .add_option(&["--global"], StoreTrue,
-                        "Hardlink containers between projects.");
-        ap.stop_on_first_argument(true);
-        match ap.parse(args.clone(), &mut stdout(), &mut stderr()) {
-            Ok(()) => {},
-            Err(0) => return Ok(0),
-            Err(_) => return Ok(122),
-        }
-    }
-
-    if global && ctx.ext_settings.storage_dir.is_none() {
-        error!("The --global flag is only meaningful if you configure \
-                storage-dir in settings");
-        return Ok(2);
-    }
-
-    let cont_dirs = if global {
-        if let Some(ref storage_dir) = ctx.ext_settings.storage_dir {
-            collect_containers_from_storage(storage_dir)?
-        } else {
-            return Err(format!(
-                "The --global flag is only meaningful if you configure \
-                 storage-dir in settings"));
-        }
-    } else {
-        let roots = storage_dir::get_base(ctx)
-            .map(|x| x.join(".roots"))
-            .ok_or_else(|| format!(
-                "storage dir created by preceding container build"))?;
-        collect_container_dirs(&roots, None)?
-    };
-
-    for cont_dir in &cont_dirs {
-        let index_path = cont_dir.path.join("index.ds1");
-        if !index_path.exists() {
-            warn!("Indexing container {:?} ...", &cont_dir.path);
-            write_container_signature(&cont_dir.path)?;
-        }
-    }
-
-    match hardlink_identical_files(cont_dirs.iter().map(|d| &d.path)) {
-        Ok((count, size)) => {
-            warn!("Found and linked {} ({}) identical files",
-                  count, human_size(size));
-            Ok(0)
-        },
-        Err(msg) => {
-            Err(format!("Error when linking container files: {}", msg))
-        },
-    }
-}
-
-pub fn verify_container(ctx: &Context, mut args: Vec<String>)
-    -> Result<i32, String>
-{
-    args.insert(0, "vagga _verify".to_string());
-    let mut container = "".to_string();
-    {
-        let mut ap = ArgumentParser::new();
-        ap.set_description("Verifies container files checksum");
-        ap.refer(&mut container)
-            .add_argument("container", Store, "Container to verify");
-        ap.stop_on_first_argument(true);
-        match ap.parse(args.clone(), &mut stdout(), &mut stderr()) {
-            Ok(()) => {},
-            Err(0) => return Ok(0),
-            Err(_) => return Ok(122),
-        }
-    }
-
-    let vagga_dir = ctx.config_dir.join(".vagga");
-    let ver = version_from_symlink(vagga_dir.join(&container))?;
-
-    let roots_dir = storage_dir::get_base(ctx)
-        .map(|d| d.join(".roots"))
-        .ok_or_else(|| format!("Base directory is unavailable"))?;
-    let cont_dir = roots_dir.join(&ver);
-
-    info!("Checking container: {:?}", &cont_dir);
-    match check_signature(&cont_dir) {
-        Ok(None) => Ok(0),
-        Ok(Some(ref diff)) => {
-            println!("Container was corrupted");
-            if !diff.missing_paths.is_empty() {
-                println!("Missing paths:");
-                for p in &diff.missing_paths {
-                    println!("  {}", p.to_string_lossy());
-                }
-            }
-            if !diff.extra_paths.is_empty() {
-                println!("Extra paths:");
-                for p in &diff.extra_paths {
-                    println!("  {}", p.to_string_lossy());
-                }
-            }
-            if !diff.corrupted_paths.is_empty() {
-                println!("Corrupted paths:");
-                for p in &diff.corrupted_paths {
-                    println!("  {}", p.to_string_lossy());
-                }
-            }
-            Ok(1)
-        },
-        Err(e) => Err(format!("Error checking container signature: {}", e)),
-    }
 }
 
 pub fn passthrough(ctx: &Context, cname: &str, args: Vec<String>)

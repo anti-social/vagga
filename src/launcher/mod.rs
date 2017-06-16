@@ -263,7 +263,8 @@ pub fn run(input_args: Vec<String>) -> i32 {
         "_version_hash" => {
             underscore::version_hash(&context, &cname, args)
         }
-        "_build_shell" | "_clean" | "_check_overlayfs_support" => {
+        "_build_shell" | "_clean" | "_check_overlayfs_support" |
+        "_hardlink" | "_verify" => {
             underscore::passthrough(&context, &cname, args)
         }
         "_base_dir" => {
@@ -301,12 +302,12 @@ pub fn run(input_args: Vec<String>) -> i32 {
         "_update_symlinks" => {
             commands::update_symlinks(&context, args)
         }
-        "_hardlink" => {
-            underscore::hardlink_containers(&context, args)
-        }
-        "_verify" => {
-            underscore::verify_container(&context, args)
-        }
+        // "_hardlink" => {
+        //     underscore::hardlink_containers(&context, args)
+        // }
+        // "_verify" => {
+        //     underscore::verify_container(&context, args)
+        // }
         "_capsule" => {
             ::capsule::run_command(&context, args)
         }

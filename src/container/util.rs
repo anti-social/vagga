@@ -475,9 +475,9 @@ pub fn hardlink_identical_files<I, P>(cont_dirs: I)
                                                   .strip_prefix("/").unwrap());
             let meta = match path.symlink_metadata() {
                 Ok(meta) => meta,
-                Err(ref e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                    continue;
-                },
+                // Err(ref e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                //     continue;
+                // },
                 Err(e) => {
                     return Err(format!(
                         "Error querying metadata for file {:?}: {}", &path, e));
