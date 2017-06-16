@@ -495,33 +495,33 @@ pub fn hardlink_all_identical_files<I, P>(cont_dirs: I)
         }
 
         for paths_and_metas in grouped_entries.values() {
-            let mut tgt: Option<(PathBuf, u64)> = None;
-            for &(ref cont_dir, ref path, ref meta) in paths_and_metas {
-                let tmp_path = cont_dir.join(".lnk.tmp");
-                if let Some((ref tgt_path, tgt_ino)) = tgt {
-                    if meta.ino() != tgt_ino {
-                        match safe_hardlink(tgt_path, path, &tmp_path) {
-                            Ok(_) => {},
-                            Err(HardlinkError::Create(ref e)) |
-                            Err(HardlinkError::Rename(ref e))
-                                if e.kind() == io::ErrorKind::NotFound =>
-                            {
-                                // Ignore not found error cause container
-                                // could be deleted
-                                continue;
-                            },
-                            Err(e) => {
-                                return Err(format!(
-                                    "Error hard linking {:?} -> {:?}: {}",
-                                    &tgt_path, path, e));
-                            },
-                        }
-                        count += 1;
-                        size += meta.size();
+            if let Some((&(_, ref tgt_path, ref tgt_meta), links)) =
+                paths_and_metas.split_first()
+            {
+                let tgt_ino = tgt_meta.ino();
+                for &(ref cont_dir, ref lnk_path, ref lnk_meta) in links {
+                    let tmp_path = cont_dir.join(".lnk.tmp");
+                    if lnk_meta.ino() == tgt_ino {
+                        continue;
                     }
-                } else {
-                    tgt = Some((path.to_path_buf(), meta.ino()));
-                    continue;
+                    match safe_hardlink(tgt_path, lnk_path, &tmp_path) {
+                        Ok(_) => {},
+                        Err(HardlinkError::Create(ref e)) |
+                        Err(HardlinkError::Rename(ref e))
+                            if e.kind() == io::ErrorKind::NotFound =>
+                        {
+                            // Ignore not found error cause container
+                            // could be deleted
+                            continue;
+                        },
+                        Err(e) => {
+                            return Err(format!(
+                                "Error hard linking {:?} -> {:?}: {}",
+                                tgt_path, lnk_path, e));
+                        },
+                    }
+                    count += 1;
+                    size += lnk_meta.size();
                 }
             }
         }
