@@ -382,7 +382,7 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                             lnk_size == tgt_size &&
                             lnk_hashes == tgt_hashes =>
                         {
-                            let tgt = tgt_root_path.join(
+                            let ref tgt = tgt_root_path.join(
                                 tgt_path.strip_prefix("/").map_err(|_| format!(
                                     "Invalid signature entry {:?}: {:?}",
                                     tgt_root_path, tgt_path))?);
@@ -407,7 +407,16 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                             {
                                 continue;
                             }
-                            match safe_hardlink(&tgt, &lnk, &tmp) {
+                            let block_size = 32768;
+                            let mut tgt_file = try_msg!(File::open(tgt),
+                                "Error opeining target file {path:?}: {err}", path=tgt);
+                            if !try_msg!(check_hash(tgt_hashes, block_size, &mut tgt_file),
+                                "Error hashing file {path:?}: {err}", path=tgt)
+                            {
+                                warn!("Broken file: {:?}", tgt);
+                                continue;
+                            }
+                            match safe_hardlink(tgt, &lnk, &tmp) {
                                 Ok(_) => {},
                                 Err(HardlinkError::Create(ref e))
                                     if e.kind() == io::ErrorKind::NotFound =>
@@ -419,7 +428,7 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
                                 Err(e) => {
                                     return Err(format!(
                                         "Error hard linking {:?} -> {:?}: {}",
-                                        &tgt, &lnk, e));
+                                        tgt, &lnk, e));
                                 },
                             }
                             count += 1;
@@ -435,6 +444,26 @@ pub fn hardlink_container_files<I, P>(tmp_dir: &Path, cont_dirs: I)
     }
 
     Ok((count, size))
+}
+
+fn check_hash<R: io::Read>(orig_hashes: &v1::Hashes, block_size: u64, mut f: R)
+    -> io::Result<bool>
+{
+    use dir_signature::v1::hash::Hash;
+    let hasher = v1::hash::Blake2b_256;
+    for orig_hash in orig_hashes.iter() {
+        let hash = hasher.hash_file(&mut f, block_size)?;
+        warn!("{:?}", &orig_hash);
+        warn!("{:?}", hash.raw());
+        if orig_hash != hash.raw() {
+            return Ok(false);
+        }
+    }
+    let mut test_buf = [0; 1];
+    if f.read(&mut test_buf)? != 0 {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 #[cfg(not(feature="containers"))]
