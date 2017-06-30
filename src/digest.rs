@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::os::unix::ffi::OsStrExt;
 
 use sha2::{Sha256, Digest as DigestTrait};
-use blake2::Blake2b512;
-use digest_writer::Writer;
+use blake2::Blake2b;
+use digest_writer::{Writer, FixedOutput};
 use rustc_serialize::json::Json;
 use config::Range;
 
@@ -29,7 +29,7 @@ enum Opt<W> {
 
 /// This just copies the hash data into a buffer for debugging
 struct DebugWriter {
-    sha: Writer<Blake2b512>,
+    sha: Writer<Blake2b>,
     data: Opt<Vec<u8>>,
 }
 
@@ -43,7 +43,7 @@ impl Digest {
     pub fn new(debug: bool, raw_debug: bool) -> Digest {
         Digest {
             sha: DebugWriter {
-                sha: Writer::new(Blake2b512::new()),
+                sha: Writer::new(Blake2b::new()),
                 data: if raw_debug { Opt::Out(Vec::new()) } else { Opt::Sink },
             },
             debug: if debug { Opt::Out(String::new()) } else { Opt::Sink },
@@ -134,7 +134,7 @@ impl<W: fmt::Write> fmt::Write for Opt<W> {
 
 impl fmt::LowerHex for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        hexfmt(&self.sha.sha.clone().result()[..], f)
+        hexfmt(&self.sha.sha.clone().fixed_result()[..], f)
     }
 }
 
@@ -158,7 +158,7 @@ impl<'a> fmt::LowerHex for ShowHex<'a, Sha256> {
     }
 }
 
-impl<'a> fmt::LowerHex for ShowHex<'a, Blake2b512> {
+impl<'a> fmt::LowerHex for ShowHex<'a, Blake2b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         hexfmt(&self.0.result()[..], f)
     }

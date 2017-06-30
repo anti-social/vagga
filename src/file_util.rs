@@ -273,7 +273,7 @@ pub fn check_stream_hashsum(mut reader: &mut Read, sha256: &String)
     use digest_writer::Writer;
     use digest::hex;
 
-    let mut hash = Writer::new(Sha256::new());
+    let mut hash = Writer::new(Sha256::default());
     try_msg!(io::copy(&mut reader, &mut hash),
         "Error when calculating hashsum: {err}");
     let hash_str = format!("{:x}", hex(&hash.into_inner()));

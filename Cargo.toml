@@ -9,10 +9,9 @@ members = ["path_filter"]
 [dependencies]
 libc = "0.2.10"
 nix = "0.7.0"
-sha2 = "0.3.0"
-blake2 = "0.3.0"
-typenum = "1.5.1"
-digest-writer = "0.1.1"
+sha2 = "0.6.0"
+blake2 = "0.6.0"
+digest-writer = { git = "https://github.com/anti-social/digest-writer.git", rev="1e063e3" }
 rand = "0.3.14"
 argparse = "0.2.1"
 rustc-serialize = "0.3.19"
