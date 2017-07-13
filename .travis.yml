@@ -8,14 +8,16 @@ language: rust
 matrix:
   include:
     - <<: *linux
-      env: TESTS="cargo alpine badcmd copy cyclic completion generic image network prerequisites readonly uidmap vcs version volumes mixins capsule"
-    - <<: *linux
-      env: TESTS="inheritance subconfig ubuntu ubuntu_release"
-    - <<: *linux
-      env: TESTS="npm pip yarn"
-    - <<: *linux
-      env: TESTS="composer gem_bundler gem_bundler_lock"
-    - os: osx
+      env: TESTS="composer"
+    # - <<: *linux
+    #   env: TESTS="cargo alpine badcmd copy cyclic completion generic image network prerequisites readonly uidmap vcs version volumes mixins capsule"
+    # - <<: *linux
+    #   env: TESTS="inheritance subconfig ubuntu ubuntu_release"
+    # - <<: *linux
+    #   env: TESTS="npm pip yarn"
+    # - <<: *linux
+    #   env: TESTS="composer gem_bundler gem_bundler_lock"
+    # - os: osx
 install:
 - "echo ubuntu-mirror: http://mirrors.us.kernel.org/ubuntu/ > ~/.vagga.yaml"
 - "echo alpine-mirror: http://mirrors.gigenet.com/alpinelinux/ >> ~/.vagga.yaml"

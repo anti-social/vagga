@@ -30,12 +30,12 @@ pub static PROXY_ENV_VARS: [&'static str; 5] =
     [ "http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy" ];
 
 lazy_static! {
-    static ref DEBUG_STYLE: unshare::Style = unshare::Style::debug()
-        .env(env::var("VAGGA_DEBUG_CMDENV")
-             .map(|x| x.len() > 0).unwrap_or(false));
+    static ref DEBUG_STYLE: unshare::Style = unshare::Style::debug();
+        // .env(env::var("VAGGA_DEBUG_CMDENV")
+        //      .map(|x| x.len() > 0).unwrap_or(false));
     // TODO(tailhook) Friendly style may turn into debug when some setting
     // is enabled
-    static ref FRIENDLY_STYLE: unshare::Style = unshare::Style::short();
+    static ref FRIENDLY_STYLE: unshare::Style = unshare::Style::debug();
 }
 
 
