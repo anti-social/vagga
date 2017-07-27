@@ -79,6 +79,17 @@ impl Py3Requirements {
 }
 
 
+#[derive(Debug)]
+pub struct Py3Compile(PathBuf);
+tuple_struct_decode!(Py3Compile);
+
+impl Py3Compile {
+    pub fn config() -> V::Scalar {
+        V::Scalar::new()
+    }
+}
+
+
 impl Default for PipConfig {
     fn default() -> PipConfig {
         PipConfig {
@@ -201,6 +212,19 @@ pub fn pip_requirements(distro: &mut Box<Distribution>, ctx: &mut Context,
         .ok_or("Incorrect path for requirements file")?.to_string());
     run_command_at_env(ctx, &pip_cli, &Path::new("/work"), &[
         ("PYTHONPATH", "/tmp/non-existent:/tmp/pip-install")])
+}
+
+fn py_compileall(distro: &mut Box<Distribution>, ctx: &mut Context, ver: u8,
+    path: &Path)
+    -> Result<(), String>
+{
+    let features = scan_features(&ctx.pip_settings, ver, &vec!());
+    packages::ensure_packages(distro, ctx, &features)?;
+    run_command_at_env(ctx,
+        &["python3".to_string(), "-m".to_string(), "compileall".to_string(),
+          path.to_str().ok_or("Invalid path")?.to_string()],
+        Path::new("/work"),
+        &[("PYTHONHASHSEED", "0")])
 }
 
 pub fn configure(ctx: &mut Context) -> Result<(), String> {
@@ -412,4 +436,25 @@ impl BuildStep for Py3Requirements {
     fn is_dependent_on(&self) -> Option<&str> {
         None
     }
+}
+
+impl BuildStep for Py3Compile {
+    fn name(&self) -> &'static str { "Py3Compile" }
+    fn hash(&self, _cfg: &Config, hash: &mut Digest)
+        -> Result<(), VersionError>
+    {
+        hash.field("path", &self.0);
+        Ok(())
+    }
+    fn build(&self, guard: &mut Guard, build: bool)
+        -> Result<(), StepError>
+    {
+        configure(&mut guard.ctx)?;
+        if build {
+            warn!("Py3Compile");
+            py_compileall(&mut guard.distro, &mut guard.ctx, 3, &self.0)?;
+        }
+        Ok(())
+    }
+    fn is_dependent_on(&self) -> Option<&str> { None }
 }

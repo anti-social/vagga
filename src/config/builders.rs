@@ -28,6 +28,7 @@ const COMMANDS: &'static [&'static str] = &[
     "Py2Requirements",
     "Py3Install",
     "Py3Requirements",
+    "Py3Compile",
     "Tar",
     "TarInstall",
     "Unzip",
@@ -122,6 +123,7 @@ pub fn builder_validator<'x>() -> V::Enum<'x> {
     .option("Py2Requirements", cmd::pip::Py2Requirements::config())
     .option("Py3Install", cmd::pip::Py3Install::config())
     .option("Py3Requirements", cmd::pip::Py3Requirements::config())
+    .option("Py3Compile", cmd::pip::Py3Compile::config())
 
     // Node.js
     .option("NpmConfig", cmd::npm::NpmConfig::config())
@@ -170,6 +172,7 @@ fn decode_step<D: Decoder>(options: &[&str], index: usize, d: &mut D)
         "Py2Requirements" => step(cmd::pip::Py2Requirements::decode(d)),
         "Py3Install" => step(cmd::pip::Py3Install::decode(d)),
         "Py3Requirements" => step(cmd::pip::Py3Requirements::decode(d)),
+        "Py3Compile" => step(cmd::pip::Py3Compile::decode(d)),
         "Tar" => step(cmd::tarcmd::Tar::decode(d)),
         "TarInstall" => step(cmd::tarcmd::TarInstall::decode(d)),
         "Unzip" => step(cmd::unzip::Unzip::decode(d)),

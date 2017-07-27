@@ -94,6 +94,11 @@ containers:
     - !Env { CFLAGS: "-I/usr/include/libxml2 -I/usr/include/libxslt" }
     - !Py3Install [lxml]
 
+  py3-compile:
+    setup:
+    - !Ubuntu xenial
+    - !Py3Compile /work/app
+
 commands:
   pty-output: !Command
     container: py3-ubuntu
