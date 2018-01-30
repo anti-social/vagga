@@ -94,6 +94,13 @@ containers:
       path: /tmp/hello_1.0-1_amd64.deb
     - !Sh dpkg -i /tmp/hello_1.0-1_amd64.deb
 
+  minimum-container:
+    setup:
+    - !LddCopy
+      libraries_from_container: calc
+      binaries:
+      - /usr/bin/bc
+
   deep:
     setup:
     - !Alpine v3.4

@@ -1,0 +1,10 @@
+[package]
+name = "ldd"
+version = "0.1.0"
+license = "MIT/Apache-2.0"
+
+[dependencies]
+#elfkit = "0.0.4"
+elfkit = { git = "https://github.com/aep/elfkit", rev = "5d83fb9" }
+quick-error = "1.1.0"
+glob = "0.2.11"

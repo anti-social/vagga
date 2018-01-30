@@ -1,0 +1,19 @@
+containers:
+  base:
+    setup:
+    - !Alpine v3.7
+
+commands:
+  gen-test-data: !Command
+    description: Generate index files used in benchmarks
+    container: base
+    run: |
+      set -ex
+      cd /work
+      if [ ! -f ubuntu-base-16.04.2-base-amd64.tar.gz ]; then
+        wget http://cdimage.ubuntu.com/ubuntu-base/releases/16.04/release/ubuntu-base-16.04.2-base-amd64.tar.gz \
+          -O ubuntu-base-16.04.2-base-amd64.tar.gz
+      fi
+      rm -rf ubuntu-xenial
+      mkdir -p ubuntu-xenial
+      tar -xzf ubuntu-base-16.04.2-base-amd64.tar.gz --exclude "dev/*" -C ubuntu-xenial

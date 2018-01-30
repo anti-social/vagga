@@ -46,6 +46,7 @@ const COMMANDS: &'static [&'static str] = &[
     "Container",
     "Build",
     "SubConfig",
+    "LddCopy",
     "NpmConfig",
     "NpmDependencies",
     "YarnDependencies",
@@ -96,6 +97,7 @@ pub enum CommandName {
     Container,
     Build,
     SubConfig,
+    LddCopy,
     NpmConfig,
     NpmDependencies,
     YarnDependencies,
@@ -126,6 +128,7 @@ pub fn builder_validator<'x>() -> V::Enum<'x> {
     .option("BuildDeps", cmd::packaging::BuildDeps::config())
     .option("Container", cmd::subcontainer::Container::config())
     .option("SubConfig", cmd::subcontainer::SubConfig::config())
+    .option("LddCopy", cmd::subcontainer::LddCopy::config())
     .option("Build", cmd::subcontainer::Build::config())
     .option("Text", cmd::text::Text::config())
     .option("Copy", cmd::copy::Copy::config())
@@ -217,6 +220,7 @@ impl<'a> Visitor<'a> for NameVisitor {
             "Container" => Container,
             "Build" => Build,
             "SubConfig" => SubConfig,
+            "LddCopy" => LddCopy,
             "NpmConfig" => NpmConfig,
             "NpmDependencies" => NpmDependencies,
             "YarnDependencies" => YarnDependencies,
@@ -290,6 +294,7 @@ impl<'a> Visitor<'a> for StepVisitor {
             Container => decode::<cmd::subcontainer::Container, _>(v),
             Build => decode::<cmd::subcontainer::Build, _>(v),
             SubConfig => decode::<cmd::subcontainer::SubConfig, _>(v),
+            LddCopy => decode::<cmd::subcontainer::LddCopy, _>(v),
             NpmConfig => decode::<cmd::npm::NpmConfig, _>(v),
             NpmDependencies => decode::<cmd::npm::NpmDependencies, _>(v),
             YarnDependencies => decode::<cmd::npm::YarnDependencies, _>(v),

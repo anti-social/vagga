@@ -46,6 +46,7 @@ serde_json = "1.0.2"
 serde_derive = "1.0.11"
 failure = "0.1.1"
 resolv-conf = "0.6.0"
+ldd = { version = "0.1.0", path = "ldd" }
 
 [features]
 default = ["containers"]
