@@ -5,7 +5,7 @@ extern crate glob;
 use std::collections::{BTreeSet, HashSet};
 use std::io::{self, BufReader, BufRead};
 use std::ffi::OsString;
-use std::fs::File;
+use std::fs::{File, read_link, symlink_metadata};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -72,7 +72,8 @@ impl Ldd {
         let ref path = join(&self.sysroot, path.as_ref());
         let mut lpaths = self.lpaths.clone();
         println!("Lpaths: {:?}", &lpaths);
-        let mut ctx = LdContext::new();
+//        let mut ctx = LdContext::new(&self.get_origin_dir(path)?);
+        let mut ctx = LdContext::new(Path::new(""));
         for lpath in lpaths {
             ctx.add_lpath(&lpath);
         }
@@ -98,12 +99,11 @@ impl Ldd {
                     if dyn.dhtype == DynamicType::RPATH {
                         if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
                             let rpaths_str = String::from_utf8_lossy(&name.0).into_owned();
-                            for rpath_str in rpaths_str.split(':') {
-
-                                ctx.add_lpath(
-                                    &self.sysroot.join(&)
-                                )
-                            }
+//                            for rpath_str in rpaths_str.split(':').reverse() {
+//                                ctx.add_lpath(
+//                                    &self.sysroot.join(&)
+//                                )
+//                            }
                         }
                     }
                     if dyn.dhtype == DynamicType::NEEDED {
@@ -143,11 +143,25 @@ fn join(sysroot: &Path, path: &Path) -> PathBuf {
     )
 }
 
+fn follow_link(sysroot: &Path, path: &Path) -> io::Result<PathBuf> {
+    let stat = symlink_metadata(path)?;
+    if stat.file_type().is_symlink() {
+        let ref dst_path = join(sysroot, &read_link(path)?);
+        follow_link(sysroot, dst_path)
+    } else {
+        Ok(path.to_path_buf())
+    }
+}
+
 fn parse_ld_so_conf(sysroot: &Path, path: &Path) -> io::Result<Vec<PathBuf>> {
     println!("ld.so.conf: {:?}", path);
     let mut paths = Vec::new();
 
+    println!("> following link {:?}", path);
+    let ref path = follow_link(sysroot, path)?;
+    println!("> opening {:?}", path);
     let f = File::open(path)?;
+    println!("> open ok");
     let f = BufReader::new(&f);
     for line in f.lines() {
         let line = line?;
