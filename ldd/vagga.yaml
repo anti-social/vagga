@@ -4,3 +4,4 @@ containers:
     - !Ubuntu xenial
     - !Install
       - openjdk-8-jre
+      - python3

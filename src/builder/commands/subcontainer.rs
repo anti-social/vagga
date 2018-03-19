@@ -1,13 +1,16 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::os::unix::fs::{PermissionsExt, MetadataExt};
 
 use libmount::{BindMount, Remount};
 
-use elfkit::Elf;
-
 use quire::validate as V;
+
 use quick_error::ResultExt;
+
+use ldd::Ldd;
+
 use config::read_config;
 use config::containers::Container as Cont;
 use version::short_version;
@@ -375,9 +378,14 @@ impl BuildStep for LddCopy {
         if !build {
             return Ok(());
         }
+        let ref container_root = container_path.join("root");
+        let mut deps = BTreeSet::new();
+        let ldd = Ldd::new(container_root)?;
         for bin in &self.binaries {
-            copy_binary(&container_path.join("root"), bin)?;
+            deps.extend(ldd.deps(bin)?);
         }
+        println!("Deps: {:?}", &deps);
+//        copy_dependencies(container_root, &self.binaries, &deps)?;
         Ok(())
     }
     fn is_dependent_on(&self) -> Option<&str> {
@@ -385,75 +393,75 @@ impl BuildStep for LddCopy {
     }
 }
 
-fn copy_binary(container_root: &Path, bin: &Path) -> Result<(), StepError> {
-    use elfkit;
+//fn copy_binary(container_root: &Path, bin: &Path) -> Result<(), StepError> {
+//    use elfkit;
+//
+//    let ref src = match bin.strip_prefix("/") {
+//        Ok(stripped_bin) => container_root.join(&stripped_bin),
+//        Err(_) => Path::new("/work").join(&bin)
+//    };
+//    let deps = find_binary_deps(src)?;
+////    deps.push("ld-musl-x86_64.so.1".to_string());
+//    for dep in &deps {
+//        copy_dependency(container_root, dep)?;
+//    }
+//    let ref dst = Path::new("/vagga/root/usr/bin")
+//        .join(bin.file_name().unwrap());
+//    try_msg!(Dir::new("/vagga/root/usr/bin").recursive(true).create(),
+//                "Error creating destination directory: {err}");
+//    println!("Copying {:?} -> {:?}", src, dst);
+//    let mut cp = ShallowCopy::new(src, dst);
+//    cp.copy().context((src, dst))?;
+//    Ok(())
+//}
 
-    let ref src = match bin.strip_prefix("/") {
-        Ok(stripped_bin) => container_root.join(&stripped_bin),
-        Err(_) => Path::new("/work").join(&bin)
-    };
-    let deps = find_binary_deps(src)?;
-//    deps.push("ld-musl-x86_64.so.1".to_string());
-    for dep in &deps {
-        copy_dependency(container_root, dep)?;
-    }
-    let ref dst = Path::new("/vagga/root/usr/bin")
-        .join(bin.file_name().unwrap());
-    try_msg!(Dir::new("/vagga/root/usr/bin").recursive(true).create(),
-                "Error creating destination directory: {err}");
-    println!("Copying {:?} -> {:?}", src, dst);
-    let mut cp = ShallowCopy::new(src, dst);
-    cp.copy().context((src, dst))?;
-    Ok(())
-}
+//fn find_binary_deps(bin: &Path) -> Result<Vec<String>, StepError> {
+//    let mut src_file = File::open(src).unwrap();
+//    let mut src_elf = Elf::from_reader(&mut src_file).unwrap();
+//    let mut deps = Vec::new();
+//    for shndx in 0..src_elf.sections.len() {
+//        if src_elf.sections[shndx].header.shtype == elfkit::types::SectionType::DYNAMIC {
+//            src_elf.load(shndx, &mut src_file).unwrap();
+//            let dynamic = src_elf.sections[shndx].content.as_dynamic().unwrap();
+//
+//            for dyn in dynamic.iter() {
+//                //                if dyn.dhtype == elfkit::types::DynamicType::RPATH {
+//                //                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
+//                //                        self.lpaths.push(join_paths(
+//                //                            &self.sysroot, &String::from_utf8_lossy(&name.0).into_owned()))
+//                //                    }
+//                //                }
+//                if dyn.dhtype == elfkit::types::DynamicType::NEEDED {
+//                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
+//                        //                        println!("Dep: {}", String::from_utf8_lossy(&name.0));
+//                        deps.push(String::from_utf8_lossy(&name.0).into_owned());
+//                    }
+//                }
+//            }
+//        }
+//    }
+//    Ok(deps)
+//}
 
-fn find_binary_deps(bin: &Path) -> Result<Vec<String>, StepError> {
-    let mut src_file = File::open(src).unwrap();
-    let mut src_elf = Elf::from_reader(&mut src_file).unwrap();
-    let mut deps = Vec::new();
-    for shndx in 0..src_elf.sections.len() {
-        if src_elf.sections[shndx].header.shtype == elfkit::types::SectionType::DYNAMIC {
-            src_elf.load(shndx, &mut src_file).unwrap();
-            let dynamic = src_elf.sections[shndx].content.as_dynamic().unwrap();
-
-            for dyn in dynamic.iter() {
-                //                if dyn.dhtype == elfkit::types::DynamicType::RPATH {
-                //                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
-                //                        self.lpaths.push(join_paths(
-                //                            &self.sysroot, &String::from_utf8_lossy(&name.0).into_owned()))
-                //                    }
-                //                }
-                if dyn.dhtype == elfkit::types::DynamicType::NEEDED {
-                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
-                        //                        println!("Dep: {}", String::from_utf8_lossy(&name.0));
-                        deps.push(String::from_utf8_lossy(&name.0).into_owned());
-                    }
-                }
-            }
-        }
-    }
-    Ok(deps)
-}
-
-fn copy_dependency(sysroot: &Path, dep: String) -> Result<(), StepError> {
-    let dst_sysroot = Path::new("/vagga/root");
-    let lpaths = &[Path::new("lib"), Path::new("usr/lib")];
-    for lpath in lpaths {
-        let ref src_lib = lpath.join(dep);
-        println!("Checking {:?}", src_lib);
-        match sysroot.join(src_lib).symlink_metadata() {
-            Some(src_stat) => {
-                println!("Dep exists: {:?}", src_lib);
-                _copy_dependency(sysroot, dst_sysroot, src_lib);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                continue
-            }
-            Err(e) => {
-                return Err(e);
-            }
-        };
-
+//fn copy_dependency(sysroot: &Path, dep: String) -> Result<(), StepError> {
+//    let dst_sysroot = Path::new("/vagga/root");
+//    let lpaths = &[Path::new("lib"), Path::new("usr/lib")];
+//    for lpath in lpaths {
+//        let ref src_lib = lpath.join(dep);
+//        println!("Checking {:?}", src_lib);
+//        match sysroot.join(src_lib).symlink_metadata() {
+//            Some(src_stat) => {
+//                println!("Dep exists: {:?}", src_lib);
+//                _copy_dependency(sysroot, dst_sysroot, src_lib);
+//            }
+//            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+//                continue
+//            }
+//            Err(e) => {
+//                return Err(e);
+//            }
+//        };
+//
 //        if src_lib.exists() {
 //            println!("Dep exists: {:?}", src_lib);
 //            let ref dst_dir = Path::new("/vagga/root").join(lpath);
@@ -463,39 +471,39 @@ fn copy_dependency(sysroot: &Path, dep: String) -> Result<(), StepError> {
 //            let mut cp = ShallowCopy::new(src_lib, dst_lib);
 //            cp.copy().context((src_lib, dst_lib))?;
 //        }
-    }
-    Ok(())
-}
-
-fn _copy_dependency(src_sysroot: &Path, dst_sysroot: &Path, rel_path: &Path) -> Result<(), StepError> {
-    use std::fs;
-
-    let src_path = src_sysroot.join(rel_path);
-    let dst_path = dst_sysroot.join(rel_path);
-    let src_stat = src_path.symlink_metadata().unwrap();
-    if src_stat.file_type().is_symlink() {
-        let ref tgt_path = fs::read_link(src_lib).unwrap();
-        let ref tgt_lib = match tgt_path.strip_prefix("/") {
-            Ok(stripped_tgt) => src_sysroot.join(stripped_tgt),
-            Err(_) => sysroot.join(tgt_path),
-        };
-        ensure_symlink(tgt_path, dst_path).unwrap();
-        _copy_dependency(src_sysroot, dst_sysroot, tgt_path)?;
-    } else if src_stat.is_file() {
-        let mut cp = ShallowCopy::new(src_lib, dst_lib);
-        cp.copy().context((src_lib, dst_lib))?;
-    }
-
-    let ref dst_lib = dst_dir.join(dep);
-    try_msg!(Dir::new(dst_dir).recursive(true).create(),
-                    "Error creating directory: {err}");
-    if stat.file_type().is_symlink() {
-        copy_symlink(sysroot, src_lib).unwrap();
-    } else if stat.is_file() {
-        let mut cp = ShallowCopy::new(src_lib, dst_lib);
-        cp.copy().context((src_lib, dst_lib))?;
-    }
-
-    copy_symlink();
-    Ok(())
-}
+//    }
+//    Ok(())
+//}
+//
+//fn _copy_dependency(src_sysroot: &Path, dst_sysroot: &Path, rel_path: &Path) -> Result<(), StepError> {
+//    use std::fs;
+//
+//    let src_path = src_sysroot.join(rel_path);
+//    let dst_path = dst_sysroot.join(rel_path);
+//    let src_stat = src_path.symlink_metadata().unwrap();
+//    if src_stat.file_type().is_symlink() {
+//        let ref tgt_path = fs::read_link(src_lib).unwrap();
+//        let ref tgt_lib = match tgt_path.strip_prefix("/") {
+//            Ok(stripped_tgt) => src_sysroot.join(stripped_tgt),
+//            Err(_) => sysroot.join(tgt_path),
+//        };
+//        ensure_symlink(tgt_path, dst_path).unwrap();
+//        _copy_dependency(src_sysroot, dst_sysroot, tgt_path)?;
+//    } else if src_stat.is_file() {
+//        let mut cp = ShallowCopy::new(src_lib, dst_lib);
+//        cp.copy().context((src_lib, dst_lib))?;
+//    }
+//
+//    let ref dst_lib = dst_dir.join(dep);
+//    try_msg!(Dir::new(dst_dir).recursive(true).create(),
+//                    "Error creating directory: {err}");
+//    if stat.file_type().is_symlink() {
+//        copy_symlink(sysroot, src_lib).unwrap();
+//    } else if stat.is_file() {
+//        let mut cp = ShallowCopy::new(src_lib, dst_lib);
+//        cp.copy().context((src_lib, dst_lib))?;
+//    }
+//
+//    copy_symlink();
+//    Ok(())
+//}

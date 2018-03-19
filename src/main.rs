@@ -30,6 +30,7 @@ extern crate path_filter;
 extern crate serde;
 extern crate serde_json;
 extern crate resolv_conf;
+extern crate ldd;
 #[macro_use] extern crate failure;
 #[macro_use] extern crate matches;
 #[macro_use] extern crate mopa;

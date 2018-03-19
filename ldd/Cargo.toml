@@ -8,3 +8,6 @@ license = "MIT/Apache-2.0"
 elfkit = { git = "https://github.com/aep/elfkit", rev = "5d83fb9" }
 quick-error = "1.1.0"
 glob = "0.2.11"
+
+[dev-dependencies]
+matches = "0.1.6"

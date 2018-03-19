@@ -7,6 +7,7 @@ use scan_dir;
 use libmount;
 use path_filter;
 use git2;
+use ldd;
 
 use build_step::BuildStep;
 use builder::packages::Package;
@@ -96,6 +97,10 @@ quick_error! {
             display("{}", err)
         }
         GitError(err: git2::Error) {
+            from()
+            display("{}", err)
+        }
+        Ldd(err: ldd::LddError) {
             from()
             display("{}", err)
         }
