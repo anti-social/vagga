@@ -1,14 +1,12 @@
 extern crate ldd;
-#[macro_use] extern crate matches;
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use ldd::Ldd;
 
 #[test]
-fn test_apt() {
-    let ldd = Ldd::new(".vagga/test").unwrap();
+fn test_ubuntu_apt() {
+    let ldd = Ldd::new(".vagga/ubuntu").unwrap();
     let deps = ldd.deps("/usr/bin/apt").unwrap()
         .into_iter()
         .collect::<Vec<_>>();
@@ -31,8 +29,8 @@ fn test_apt() {
 }
 
 #[test]
-fn test_java() {
-    let ldd = Ldd::new(".vagga/test").unwrap();
+fn test_ubuntu_java() {
+    let ldd = Ldd::new(".vagga/ubuntu").unwrap();
     let deps = ldd.deps("/usr/bin/java").unwrap()
         .into_iter()
         .collect::<Vec<_>>();
@@ -48,8 +46,8 @@ fn test_java() {
 }
 
 #[test]
-fn test_python() {
-    let ldd = Ldd::new(".vagga/test").unwrap();
+fn test_ubuntu_python() {
+    let ldd = Ldd::new(".vagga/ubuntu").unwrap();
     let deps = ldd.deps("/usr/bin/python3").unwrap()
         .into_iter()
         .collect::<Vec<_>>();
@@ -62,6 +60,19 @@ fn test_python() {
         Path::new("/lib/x86_64-linux-gnu/libpthread.so.0").to_path_buf(),
         Path::new("/lib/x86_64-linux-gnu/libutil.so.1").to_path_buf(),
         Path::new("/lib/x86_64-linux-gnu/libz.so.1").to_path_buf(),
+    );
+    assert_eq!(deps, expected_deps);
+}
+
+#[test]
+fn test_alpine_python() {
+    let ldd = Ldd::new(".vagga/alpine").unwrap();
+    let deps = ldd.deps("/usr/bin/python3").unwrap()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let expected_deps = vec!(
+        PathBuf::from("/lib/libc.musl-x86_64.so.1"),
+        PathBuf::from("/usr/lib/libpython3.6m.so.1.0"),
     );
     assert_eq!(deps, expected_deps);
 }

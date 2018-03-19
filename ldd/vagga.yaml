@@ -1,7 +1,13 @@
 containers:
-  test:
+  ubuntu:
     setup:
     - !Ubuntu xenial
     - !Install
       - openjdk-8-jre
+      - python3
+
+  alpine:
+    setup:
+    - !Alpine v3.7
+    - !Install
       - python3

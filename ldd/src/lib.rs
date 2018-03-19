@@ -1,13 +1,13 @@
 extern crate elfkit;
 extern crate glob;
+extern crate priority_queue;
 #[macro_use] extern crate quick_error;
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::io::{self, BufReader, BufRead};
 use std::ffi::OsString;
 use std::fs::{File, read_link, symlink_metadata};
 use std::path::{Path, PathBuf, Component, MAIN_SEPARATOR};
-use std::rc::Rc;
 
 use elfkit::Elf;
 use elfkit::types::{DynamicType, SectionType};
@@ -15,13 +15,91 @@ use elfkit::dynamic::DynamicContent;
 
 use glob::glob;
 
+use priority_queue::PriorityQueue;
+
 use quick_error::ResultExt;
 
-const DEFAULT_LIBRARY_PATHS: &[&Path] = &[
-    Path::new("/usr/local/lib"),
-    Path::new("/usr/lib"),
-    Path::new("/lib"),
+const DEFAULT_LIBRARY_PATHS: &[&str] = &[
+    "/usr/local/lib",
+    "/usr/lib",
+    "/lib",
 ];
+
+const DEFAULT_PATH_PRIORITY: i32 = 1000;
+const LD_SO_CONF_PRIORITY: i32 = 2000;
+const RUNPATH_PRIORITY: i32 = 3000;
+const LD_LIBRARY_PATH_PRIORITY: i32 = 4000;
+const RPATH_PRIORITY: i32 = 5000;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+enum LPathSource {
+    RPath,
+    LdLibraryPath,
+    RunPath,
+    LdSoConf,
+    DefaultPath,
+}
+
+#[derive(Debug, Clone)]
+struct LPaths {
+    paths: PriorityQueue<PathBuf, i32>,
+    // Directories listed in the executable's rpath
+    rpath_prio: i32,
+    // Directories from the LD_LIBRARY_PATH environment variable
+    ld_library_path_prio: i32,
+    // Directories listed in the executable's runpath
+    runpath_prio: i32,
+    // Directories from /etc/ld.so.conf
+    ld_so_conf_prio: i32,
+    // Default system libraries
+    default_path_prio: i32,
+}
+
+impl LPaths {
+    fn new() -> LPaths {
+        LPaths {
+            paths: PriorityQueue::new(),
+            rpath_prio: RPATH_PRIORITY,
+            ld_library_path_prio: LD_LIBRARY_PATH_PRIORITY,
+            runpath_prio: RUNPATH_PRIORITY,
+            ld_so_conf_prio: LD_SO_CONF_PRIORITY,
+            default_path_prio: DEFAULT_PATH_PRIORITY,
+        }
+    }
+
+    fn add(&mut self, path: PathBuf, source: LPathSource) {
+        use LPathSource::*;
+
+        let prio = match source {
+            RPath => {
+                &mut self.rpath_prio
+            }
+            LdLibraryPath => {
+                &mut self.ld_library_path_prio
+            }
+            RunPath => {
+                &mut self.runpath_prio
+            }
+            LdSoConf => {
+                &mut self.ld_so_conf_prio
+            }
+            DefaultPath => {
+                &mut self.default_path_prio
+            }
+        };
+        let should_update = self.paths.get_priority(&path)
+            .map_or(true, |x| *prio > *x);
+        if should_update {
+            self.paths.push(path, *prio);
+        }
+        *prio -= 1;
+    }
+
+    fn into_vec(self) -> Vec<PathBuf> {
+        self.paths.into_sorted_vec()
+    }
+}
 
 quick_error! {
     #[derive(Debug)]
@@ -34,52 +112,10 @@ quick_error! {
         Elf(err: elfkit::Error) {
             from()
         }
-    }
-}
-
-#[derive(Clone)]
-struct LPaths {
-    // Directories listed in the executable's rpath
-    rpaths: Vec<PathBuf>,
-    // Directories from the LD_LIBRARY_PATH environment variable
-    libpaths: Vec<PathBuf>,
-    // Directories listed in the executable's rpath
-    runpaths: Vec<PathBuf>,
-    // Directories from /etc/ld.so.conf
-    lpaths: Vec<PathBuf>,
-    // Default system libraries
-    defaultpaths: Vec<PathBuf>,
-}
-
-impl LPaths {
-    fn new() -> LPaphs {
-        LPaths {
-            rpaths: vec!(),
-            libpaths: vec!(),
-            runpaths: vec!(),
-            lpaths: vec!(),
-            defaultpaths: DEFAULT_LIBRARY_PATHS.iter()
-                .map(|p| p.to_path_buf())
-                .collect(),
+        NotFound(dep: String) {
+            display("{:?} is not found", dep)
         }
     }
-
-    fn add_rpath(&mut self, path: PathBuf) {
-        if !self.seen_rpaths.contains(&path) {
-            self.lpaths.push(path.clone()3421);
-            self.seen_lpaths.insert(path);
-        }
-    }
-
-    fn add_lpath(&mut self, path: &Path) {
-        let path = path.to_path_buf();
-        if !self.seen_lpaths.contains(&path) {
-            self.lpaths.push(path.clone());
-            self.seen_lpaths.insert(path);
-        }
-    }
-
-    // fn iter_lpaths(&)    
 }
 
 #[derive(Debug)]
@@ -92,12 +128,20 @@ impl Ldd {
     pub fn new<P: AsRef<Path>>(sysroot: P) -> Result<Ldd, LddError> {
         let sysroot = sysroot.as_ref().to_path_buf();
         let ld_so_conf_path = Path::new("/etc/ld.so.conf");
-        let ref real_ld_so_conf_path = resolve_link(&sysroot, ld_so_conf_path)?;
-        let lpaths = LPaths::new();
-        if real_ld_so_conf_path.exists() {
-            let lpaths = parse_ld_so_conf(
-                &sysroot, ld_so_conf_path
-            )?;
+        let mut lpaths = LPaths::new();
+        for lpath in DEFAULT_LIBRARY_PATHS {
+            lpaths.add(PathBuf::from(lpath), LPathSource::DefaultPath);
+        }
+        match resolve_link(&sysroot, ld_so_conf_path) {
+            Ok(_) => {
+                let ld_so_conf_paths = parse_ld_so_conf(
+                    &sysroot, ld_so_conf_path
+                )?;
+                for lpath in ld_so_conf_paths {
+                    lpaths.add(lpath, LPathSource::LdSoConf);
+                }
+            }
+            Err(_) => {}
         }
         Ok(Ldd {
             sysroot,
@@ -108,31 +152,27 @@ impl Ldd {
     pub fn deps<P: AsRef<Path>>(&self, rel_path: P)
         -> Result<BTreeSet<PathBuf>, LddError>
     {
-        let mut lpaths = self.lpaths.clone();
-        println!("Lpaths: {:?}", &lpaths);
-//        let mut ctx = LdContext::new(&self.get_origin_dir(path)?);
-        let mut ctx = LdContext::new(Path::new(""));
-        for lpath in lpaths {
-            ctx.add_lpath(&lpath);
-        }
         let mut deps = BTreeSet::new();
-        self.find_deps(rel_path.as_ref(), &mut ctx, &mut deps)?;
+        self.find_deps(rel_path.as_ref(), &mut deps)?;
         Ok(deps)
     }
 
-    fn find_deps(&self,
-                 rel_path: &Path, ctx: &mut LdContext, deps: &mut BTreeSet<PathBuf>)
+    fn find_deps(&self, rel_path: &Path, deps: &mut BTreeSet<PathBuf>)
         -> Result<(), LddError>
     {
         println!("Finding deps for: {:?}", rel_path);
         let ref path = resolve_link(&self.sysroot, rel_path)?;
         println!("Real file path: {:?}", path);
-        let ref origin_dir = Path::new("/").join(path.parent().unwrap().strip_prefix(&self.sysroot).unwrap());
-        println!("Origin: {:?}", origin_dir);
+        let ref origin = Path::new("/")
+            .join(path.parent().unwrap().strip_prefix(&self.sysroot).unwrap())
+            .to_string_lossy()
+            .into_owned();
+        println!("Origin: {:?}", origin);
         let mut src_file = File::open(path).context(path.as_path())?;
         println!("Opened!");
         let mut src_elf = Elf::from_reader(&mut src_file)?;
         let mut neededs = Vec::new();
+        let mut lpaths = self.lpaths.clone();
         for shndx in 0..src_elf.sections.len() {
             if src_elf.sections[shndx].header.shtype == SectionType::DYNAMIC {
                 src_elf.load(shndx, &mut src_file)?;
@@ -143,56 +183,63 @@ impl Ldd {
 
                 for dyn in dynamic.iter() {
                     match dyn.dhtype {
-                        DynamicType::RUNPATH => {}
-                        DynamicType::RPATH => {
+                        ref dhtype @ DynamicType::RUNPATH |
+                        ref dhtype @ DynamicType::RPATH => {
                             if let DynamicContent::String(ref name) = dyn.content {
                                 let rpaths_str = String::from_utf8_lossy(&name.0).into_owned();
-                                println!("RPATH: {}", rpaths_str);
+                                println!("{:?}: {}", dhtype, rpaths_str);
                                 for rpath_str in rpaths_str.split(':') {
-                                    let ref rpath = PathBuf::from(rpath_str);
-                                    let _rpath;
-                                    let rpath = match rpath.strip_prefix("$ORIGIN") {
-                                        Ok(p) => {
-                                            _rpath = origin_dir.join(p);
-                                            &_rpath
-                                        },
-                                        Err(_) => rpath,
+                                    let rpath = PathBuf::from(rpath_str);
+                                    let lpath_source = if dhtype == &DynamicType::RUNPATH {
+                                        LPathSource::RunPath
+                                    } else {
+                                        LPathSource::RPath
                                     };
-                                    let ref rpath = normalize_path(rpath);
-                                    println!("rpath: {:?}", rpath);
-                                    ctx.add_lpath(rpath);
+                                    lpaths.add(rpath, lpath_source);
                                 }
                             }
                         }
                         DynamicType::NEEDED => {
-                            if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
-                                let ref needed = String::from_utf8_lossy(&name.0).into_owned();
+                            if let DynamicContent::String(ref name) = dyn.content {
+                                let needed = String::from_utf8_lossy(&name.0).into_owned();
                                 println!("NEEDED: {}", needed);
-                                neededs.push(PathBuf::from(needed));
+                                neededs.push(needed);
                             }
                         }
+                        _ => {}
                     }
                 }
             }
         }
 
+        let lpaths = lpaths.into_vec();
+        println!("lpaths: {:?}", &lpaths);
         for needed in &neededs {
             let mut found = false;
-            for lpath in &ctx.lpaths {
+            for lpath in &lpaths {
+                // TODO(a-koval) Add support for the $LIB & $PLATFORM tokens and NODEFLIB & ORIGIN flag
+                let lpath_str = lpath.to_string_lossy();
+                println!("lpath: {}", &lpath_str);
+                let lpath_str = lpath_str
+                    .replace("${ORIGIN}", origin)
+                    .replace("$ORIGIN", origin);
+                println!("lpath: {}", &lpath_str);
+                // TODO(a-koval) Consider to move normalization into resolve_link function
+                let ref lpath = normalize_path(&PathBuf::from(lpath_str));
                 let ref rel_dep = lpath.join(needed);
-                let ref dep = with_sysroot(&self.sysroot, rel_dep);
-                println!("Checking {:?} in {:?}", needed, lpath);
-                if dep.exists() {
-                    if deps.insert(rel_dep.clone()) {
-                        println!("Found: {:?}", dep);
-                        self.find_deps(rel_dep, &mut ctx.clone(), deps);
-                        found = true;
-                        break;
-                    }
+                let ref dep = match resolve_link(&self.sysroot, rel_dep) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                println!("Checking {:?} in {:?}: {:?}", needed, lpath, dep);
+                if deps.insert(rel_dep.clone()) {
+                    println!("Found: {:?}", dep);
+                    self.find_deps(rel_dep, deps)?;
                 }
+                found = true;
             }
             if !found {
-                println!("Cannot find: {:?}", needed);
+                return Err(LddError::NotFound(needed.clone()));
             }
         }
 
@@ -295,7 +342,11 @@ fn normalize_path(path: &Path) -> PathBuf {
     let root_part = if let Some(prefix) = prefix {
         prefix.as_os_str().to_os_string()
     } else {
-        if has_root { OsString::from(MAIN_SEPARATOR.to_string()) } else { OsString::from("") }
+        if has_root {
+            OsString::from(MAIN_SEPARATOR.to_string())
+        } else {
+            OsString::from("")
+        }
     };
     let mut normalized_path = PathBuf::from(root_part);
     for p in parts {
@@ -304,10 +355,11 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized_path
 }
 
+#[cfg(test)]
 mod test {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::normalize_path;
+    use super::{normalize_path, LPaths, LPathSource};
 
     #[test]
     fn test_normalize_path() {
@@ -317,5 +369,25 @@ mod test {
         assert_eq!(normalize_path(Path::new("..")), Path::new(""));
         assert_eq!(normalize_path(Path::new("/./..")), Path::new("/"));
         assert_eq!(normalize_path(Path::new("/a/../b/c/./../test.txt")), Path::new("/b/test.txt"));
+    }
+
+    #[test]
+    fn test_lpaths() {
+        let mut lpaths = LPaths::new();
+        lpaths.add(PathBuf::from("/usr/local/lib"), LPathSource::LdLibraryPath);
+        lpaths.add(PathBuf::from("/usr/local/lib"), LPathSource::DefaultPath);
+        lpaths.add(PathBuf::from("/usr/lib"), LPathSource::DefaultPath);
+        lpaths.add(PathBuf::from("/lib"), LPathSource::DefaultPath);
+        lpaths.add(PathBuf::from("/opt/lib"), LPathSource::LdSoConf);
+        lpaths.add(PathBuf::from("/lib"), LPathSource::RPath);
+        assert_eq!(
+            lpaths.into_vec(),
+            vec!(
+                Path::new("/lib"),
+                Path::new("/usr/local/lib"),
+                Path::new("/opt/lib"),
+                Path::new("/usr/lib"),
+            )
+        );
     }
 }
