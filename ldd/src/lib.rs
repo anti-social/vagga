@@ -3,7 +3,7 @@ extern crate glob;
 extern crate priority_queue;
 #[macro_use] extern crate quick_error;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::io::{self, BufReader, BufRead};
 use std::ffi::OsString;
 use std::fs::{File, read_link, symlink_metadata};
@@ -113,7 +113,10 @@ quick_error! {
             from()
         }
         NotFound(dep: String) {
-            display("{:?} is not found", dep)
+            display("Cannot find dependency: {:?}", dep)
+        }
+        RecursiveLink(path: PathBuf) {
+            display("Recursive link: {:?}", path)
         }
     }
 }
@@ -256,26 +259,45 @@ fn with_sysroot(sysroot: &Path, path: &Path) -> PathBuf {
     )
 }
 
-fn resolve_link(sysroot: &Path, rel_path: &Path) -> Result<PathBuf, LddError> {
+pub fn resolve_link(sysroot: &Path, rel_path: &Path)
+    -> Result<(PathBuf, Vec<PathBuf>), LddError>
+{
     println!("Resolving link: {:?}", rel_path);
-    let ref path = with_sysroot(sysroot, rel_path);
-    let stat = symlink_metadata(path).context(path.as_ref())?;
-    if stat.file_type().is_symlink() {
-        let dst_path = read_link(path).context(path.as_ref())?;
-        let ref dst_path = if dst_path.is_relative() {
-            if let Some(dir) = rel_path.parent() {
-                dir.join(dst_path)
+    let mut cur_path = rel_path.to_path_buf();
+    let mut links = vec!(cur_path.clone());
+    let mut seen_paths = HashSet::new();
+    seen_paths.insert(cur_path.clone());
+    loop {
+        let ref path = with_sysroot(sysroot, &cur_path);
+        let stat = symlink_metadata(path).context(path.as_ref())?;
+        if stat.file_type().is_symlink() {
+            let dst_path = read_link(path).context(path.as_ref())?;
+            let dst_path = if dst_path.is_relative() {
+                if let Some(dir) = rel_path.parent() {
+                    dir.join(dst_path)
+                } else {
+                    dst_path
+                }
             } else {
                 dst_path
+            };
+            if seen_paths.contains(&dst_path) {
+                return Err(LddError::RecursiveLink(dst_path));
+            } else {
+                res.push(dst_path.clone());
+                seen_paths.insert(dst_path.clone());
             }
+            cur_path = dst_path;
         } else {
-            dst_path
-        };
-        resolve_link(sysroot, dst_path)
-    } else {
-        Ok(path.to_path_buf())
+            return Ok((path.to_path_buf(), links));
+        }
     }
 }
+
+//pub fn resolve_link(sysroot: &Path, rel_path: &Path) -> Result<PathBuf, LddError> {
+//    let paths = resolve_link_all(sysroot, rel_path)?;
+//    paths.
+//}
 
 fn parse_ld_so_conf(sysroot: &Path, rel_path: &Path)
     -> Result<Vec<PathBuf>, LddError>

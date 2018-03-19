@@ -361,11 +361,13 @@ impl BuildStep for SubConfig {
 
 impl BuildStep for LddCopy {
     fn name(&self) -> &'static str { "LddCopy" }
+
     fn hash(&self, cfg: &Config, hash: &mut Digest)
         -> Result<(), VersionError>
     {
         Ok(())
     }
+
     fn build(&self, guard: &mut Guard, build: bool) -> Result<(), StepError> {
         let ref container_name = self.libraries_from_container;
         let container = guard.ctx.config.containers.get(container_name)
@@ -388,6 +390,7 @@ impl BuildStep for LddCopy {
 //        copy_dependencies(container_root, &self.binaries, &deps)?;
         Ok(())
     }
+
     fn is_dependent_on(&self) -> Option<&str> {
         Some(&self.libraries_from_container)
     }
@@ -413,34 +416,6 @@ impl BuildStep for LddCopy {
 //    let mut cp = ShallowCopy::new(src, dst);
 //    cp.copy().context((src, dst))?;
 //    Ok(())
-//}
-
-//fn find_binary_deps(bin: &Path) -> Result<Vec<String>, StepError> {
-//    let mut src_file = File::open(src).unwrap();
-//    let mut src_elf = Elf::from_reader(&mut src_file).unwrap();
-//    let mut deps = Vec::new();
-//    for shndx in 0..src_elf.sections.len() {
-//        if src_elf.sections[shndx].header.shtype == elfkit::types::SectionType::DYNAMIC {
-//            src_elf.load(shndx, &mut src_file).unwrap();
-//            let dynamic = src_elf.sections[shndx].content.as_dynamic().unwrap();
-//
-//            for dyn in dynamic.iter() {
-//                //                if dyn.dhtype == elfkit::types::DynamicType::RPATH {
-//                //                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
-//                //                        self.lpaths.push(join_paths(
-//                //                            &self.sysroot, &String::from_utf8_lossy(&name.0).into_owned()))
-//                //                    }
-//                //                }
-//                if dyn.dhtype == elfkit::types::DynamicType::NEEDED {
-//                    if let elfkit::dynamic::DynamicContent::String(ref name) = dyn.content {
-//                        //                        println!("Dep: {}", String::from_utf8_lossy(&name.0));
-//                        deps.push(String::from_utf8_lossy(&name.0).into_owned());
-//                    }
-//                }
-//            }
-//        }
-//    }
-//    Ok(deps)
 //}
 
 //fn copy_dependency(sysroot: &Path, dep: String) -> Result<(), StepError> {
