@@ -99,6 +99,11 @@ quick_error! {
             from()
             display("{}", err)
         }
+
+        BoxedError(err: Box<std::error::Error>) {
+            from()
+            display("{}", err)
+        }
     }
 }
 

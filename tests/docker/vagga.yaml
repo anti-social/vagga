@@ -1,0 +1,10 @@
+containers:
+  hello:
+    setup:
+    - !DockerImage 
+      image: library/hello-world
+
+commands:
+  hello: !Command
+    container: hello
+    run: [/hello]
